@@ -34,8 +34,9 @@ ExternalMpvPlayer::ExternalMpvPlayer(QObject *parent)
 }
 
 void ExternalMpvPlayer::play(const QString &url, const QString &title,
-                             const QVariantMap &headers, const QStringList &subtitleUrls,
-                             const QStringList &extraArgs)
+                              const QVariantMap &headers, const QStringList &subtitleUrls,
+                              bool enableHwdec, bool enableGpuNext, bool enableHdrHint,
+                              const QStringList &extraArgs)
 {
     if (url.trimmed().isEmpty()) {
         emit errorOccurred(QStringLiteral("Cannot play an empty stream URL"));
@@ -69,12 +70,21 @@ void ExternalMpvPlayer::play(const QString &url, const QString &title,
     args << QStringLiteral("--demuxer-readahead-secs=20");
     args << QStringLiteral("--network-timeout=60");
 
-    // Asahi Linux currently lacks the Vulkan video decode extension mpv probes
-    // for HEVC. Avoid repeated failed hwaccel setup before software fallback.
-    args << (isAsahiLinux() ? QStringLiteral("--hwdec=no") : QStringLiteral("--hwdec=auto-safe"));
-    args << QStringLiteral("--vo=gpu-next");
-    args << QStringLiteral("--gpu-api=vulkan");
-    args << QStringLiteral("--target-colorspace-hint=yes");
+    if (isAsahiLinux()) {
+        // Asahi Linux currently lacks the Vulkan video decode extension mpv
+        // probes for HEVC. Avoid repeated failed hwaccel setup before software
+        // fallback. User custom args are appended last and can still override.
+        args << QStringLiteral("--hwdec=no");
+    } else if (enableHwdec) {
+        args << QStringLiteral("--hwdec=auto-safe");
+    }
+    if (enableGpuNext) {
+        args << QStringLiteral("--vo=gpu-next");
+    }
+    if (enableHdrHint) {
+        args << QStringLiteral("--gpu-api=vulkan");
+        args << QStringLiteral("--target-colorspace-hint=yes");
+    }
     if (!title.trimmed().isEmpty()) {
         args << QStringLiteral("--force-media-title=%1").arg(title.trimmed());
     }

@@ -14,6 +14,9 @@ public:
     Q_INVOKABLE void play(const QString &url, const QString &title,
                           const QVariantMap &headers = {},
                           const QStringList &subtitleUrls = {},
+                          bool enableHwdec = true,
+                          bool enableGpuNext = false,
+                          bool enableHdrHint = false,
                           const QStringList &extraArgs = {});
 
 signals:

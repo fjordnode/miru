@@ -1,6 +1,7 @@
 #include "ApplicationController.h"
 
 #include <QDateTime>
+#include <QProcess>
 #include <QSettings>
 #include <QVariant>
 
@@ -14,6 +15,10 @@ ApplicationController::ApplicationController(QObject *parent)
     m_cinemeta.setBaseUrl(m_metadataUrl);
     m_subtitleLanguage = settings.value(QStringLiteral("subtitles/language"), QStringLiteral("eng")).toString();
     m_uiScale = settings.value(QStringLiteral("ui/scaleFactor"), 1.0).toDouble();
+    m_mpvHardwareDecoding = settings.value(QStringLiteral("mpv/hardwareDecoding"), true).toBool();
+    m_mpvGpuNext = settings.value(QStringLiteral("mpv/gpuNext"), false).toBool();
+    m_mpvHdrHint = settings.value(QStringLiteral("mpv/hdrHint"), false).toBool();
+    m_mpvExtraArgs = settings.value(QStringLiteral("mpv/extraArgs")).toString();
 
     connect(&m_cinemeta, &CinemetaClient::catalogsDiscovered, this, [this](const QVariantList &sections) {
         m_homeSections.clear();
@@ -222,6 +227,10 @@ QString ApplicationController::aioStreamsUrl() const { return m_aioStreamsUrl; }
 QString ApplicationController::metadataUrl() const { return m_metadataUrl; }
 QString ApplicationController::subtitleLanguage() const { return m_subtitleLanguage; }
 double ApplicationController::uiScale() const { return m_uiScale; }
+bool ApplicationController::mpvHardwareDecoding() const { return m_mpvHardwareDecoding; }
+bool ApplicationController::mpvGpuNext() const { return m_mpvGpuNext; }
+bool ApplicationController::mpvHdrHint() const { return m_mpvHdrHint; }
+QString ApplicationController::mpvExtraArgs() const { return m_mpvExtraArgs; }
 
 QString ApplicationController::imdbRatingsUpdated() const
 {
@@ -337,7 +346,9 @@ void ApplicationController::playStream(int index)
         }
     }
 
-    m_player.play(url, title, headers, subtitleUrls);
+    const QStringList extraArgs = QProcess::splitCommand(m_mpvExtraArgs);
+    m_player.play(url, title, headers, subtitleUrls,
+                  m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs);
 }
 
 void ApplicationController::setAioStreamsUrl(const QString &url)
@@ -402,6 +413,59 @@ void ApplicationController::setSubtitleLanguage(const QString &language)
     setStatusMessage(language == QStringLiteral("off")
                          ? QStringLiteral("Subtitles disabled")
                          : QStringLiteral("Subtitle language set to %1").arg(language));
+}
+
+void ApplicationController::setMpvHardwareDecoding(bool enabled)
+{
+    if (m_mpvHardwareDecoding == enabled) {
+        return;
+    }
+
+    m_mpvHardwareDecoding = enabled;
+    QSettings().setValue(QStringLiteral("mpv/hardwareDecoding"), enabled);
+    emit mpvHardwareDecodingChanged();
+    setStatusMessage(enabled ? QStringLiteral("mpv hardware decoding enabled")
+                             : QStringLiteral("mpv hardware decoding disabled"));
+}
+
+void ApplicationController::setMpvGpuNext(bool enabled)
+{
+    if (m_mpvGpuNext == enabled) {
+        return;
+    }
+
+    m_mpvGpuNext = enabled;
+    QSettings().setValue(QStringLiteral("mpv/gpuNext"), enabled);
+    emit mpvGpuNextChanged();
+    setStatusMessage(enabled ? QStringLiteral("mpv gpu-next enabled")
+                             : QStringLiteral("mpv gpu-next disabled"));
+}
+
+void ApplicationController::setMpvHdrHint(bool enabled)
+{
+    if (m_mpvHdrHint == enabled) {
+        return;
+    }
+
+    m_mpvHdrHint = enabled;
+    QSettings().setValue(QStringLiteral("mpv/hdrHint"), enabled);
+    emit mpvHdrHintChanged();
+    setStatusMessage(enabled ? QStringLiteral("mpv HDR/Vulkan hint enabled")
+                             : QStringLiteral("mpv HDR/Vulkan hint disabled"));
+}
+
+void ApplicationController::setMpvExtraArgs(const QString &args)
+{
+    const QString trimmed = args.trimmed();
+    if (m_mpvExtraArgs == trimmed) {
+        return;
+    }
+
+    m_mpvExtraArgs = trimmed;
+    QSettings().setValue(QStringLiteral("mpv/extraArgs"), trimmed);
+    emit mpvExtraArgsChanged();
+    setStatusMessage(trimmed.isEmpty() ? QStringLiteral("Custom mpv args cleared")
+                                       : QStringLiteral("Custom mpv args saved"));
 }
 
 void ApplicationController::setLoading(bool loading)

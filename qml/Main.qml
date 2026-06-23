@@ -1010,10 +1010,105 @@ ApplicationWindow {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "External mpv is used for playback. Torrent and magnet streams are ignored; only direct HTTP/HTTPS sources are playable."
+                            text: "External mpv is used for playback. The app always passes stream URL, auth headers, subtitles and safe network options; rendering/HDR choices are configurable below. Custom args are appended last so they can override the defaults."
                             color: Theme.textDim
                             font.pixelSize: Theme.fSmall
                             wrapMode: Text.WordWrap
+                        }
+
+                        CheckBox {
+                            id: hwdecToggle
+                            text: "Hardware decoding (--hwdec=auto-safe)"
+                            checked: appController.mpvHardwareDecoding
+                            onToggled: appController.mpvHardwareDecoding = checked
+                            contentItem: Text {
+                                text: hwdecToggle.text
+                                color: Theme.textDim
+                                font.pixelSize: Theme.fSmall
+                                leftPadding: hwdecToggle.indicator.width + Theme.s8
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        CheckBox {
+                            id: gpuNextToggle
+                            text: "Use gpu-next renderer (--vo=gpu-next)"
+                            checked: appController.mpvGpuNext
+                            onToggled: appController.mpvGpuNext = checked
+                            contentItem: Text {
+                                text: gpuNextToggle.text
+                                color: Theme.textDim
+                                font.pixelSize: Theme.fSmall
+                                leftPadding: gpuNextToggle.indicator.width + Theme.s8
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        CheckBox {
+                            id: hdrToggle
+                            text: "HDR/Vulkan hint (--gpu-api=vulkan --target-colorspace-hint=yes)"
+                            checked: appController.mpvHdrHint
+                            onToggled: appController.mpvHdrHint = checked
+                            contentItem: Text {
+                                text: hdrToggle.text
+                                color: Theme.textDim
+                                font.pixelSize: Theme.fSmall
+                                leftPadding: hdrToggle.indicator.width + Theme.s8
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Asahi Linux / Apple Silicon always starts with --hwdec=no to avoid unsupported Vulkan HEVC decode probes. Add custom args below if you want to override that."
+                            color: Theme.textMute
+                            font.pixelSize: Theme.fSmall
+                            wrapMode: Text.WordWrap
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.s8
+                            spacing: Theme.s12
+
+                            TextField {
+                                id: mpvArgsField
+                                Layout.fillWidth: true
+                                text: appController.mpvExtraArgs
+                                placeholderText: "Custom mpv args, e.g. --profile=high-quality --deband=yes"
+                                color: Theme.text
+                                placeholderTextColor: Theme.textMute
+                                font.pixelSize: Theme.fBody
+                                selectionColor: Theme.accent
+                                selectByMouse: true
+                                leftPadding: Theme.s16
+                                rightPadding: Theme.s16
+                                topPadding: Theme.s12
+                                bottomPadding: Theme.s12
+                                onAccepted: appController.mpvExtraArgs = text
+                                background: Rectangle {
+                                    radius: Theme.rMd
+                                    color: Theme.surfaceAlt
+                                    border.width: 1
+                                    border.color: mpvArgsField.activeFocus ? Theme.accent : Theme.line
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
+                                }
+                            }
+
+                            AppButton {
+                                text: "Save"
+                                variant: "primary"
+                                onClicked: appController.mpvExtraArgs = mpvArgsField.text
+                            }
+
+                            AppButton {
+                                text: "Clear"
+                                enabled: appController.mpvExtraArgs.length > 0
+                                onClicked: {
+                                    appController.mpvExtraArgs = ""
+                                    mpvArgsField.clear()
+                                }
+                            }
                         }
                     }
                 }

@@ -28,7 +28,7 @@ Planned next:
 - Resume tracking through `mpv` IPC
 - SQLite watch history and Continue Watching
 - Stream sorting
-- Player profiles for HDR, HDR-to-SDR tonemapping, and low-power mode
+- More player profiles for HDR, HDR-to-SDR tonemapping, and low-power mode
 - Embedded `libmpv` later, while keeping external `mpv` available
 
 ## Clone
@@ -138,16 +138,23 @@ The URL is stored locally using Qt settings.
 
 ## Playback
 
-The app currently launches external `mpv` with a Vulkan/gpu-next profile:
+The app launches external `mpv` and always passes the stream URL, auth headers, subtitles, IPC socket, and network-safe direct-stream options:
 
 ```text
---hwdec=auto-safe
---vo=gpu-next
---gpu-api=vulkan
---target-colorspace-hint=yes
+--ytdl=no
+--cache=yes
+--demuxer-readahead-secs=20
+--network-timeout=60
 ```
 
-On Asahi Linux / Apple Silicon, the app uses `--hwdec=no` because mpv cannot use Vulkan HEVC video decode unless the GPU driver exposes `VK_KHR_video_decode_queue`.
+Rendering choices are configurable in Settings:
+
+- Hardware decoding adds `--hwdec=auto-safe`.
+- gpu-next adds `--vo=gpu-next`.
+- HDR/Vulkan hint adds `--gpu-api=vulkan --target-colorspace-hint=yes`.
+- Custom mpv args are appended last so users can override app defaults.
+
+On Asahi Linux / Apple Silicon, the app starts with `--hwdec=no` because mpv cannot use Vulkan HEVC video decode unless the GPU driver exposes `VK_KHR_video_decode_queue`.
 
 Only streams with direct `http` or `https` URLs are passed to `mpv`.
 
