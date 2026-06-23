@@ -70,6 +70,10 @@ void ExternalMpvPlayer::play(const QString &url, const QString &title,
     args << QStringLiteral("--demuxer-readahead-secs=20");
     args << QStringLiteral("--network-timeout=60");
 
+    // Large REMUX streams can briefly starve PipeWire while demux/decode catches
+    // up. A modest audio buffer smooths those dips without hiding real stalls.
+    args << QStringLiteral("--audio-buffer=1.0");
+
     if (isAsahiLinux()) {
         // Asahi Linux currently lacks the Vulkan video decode extension mpv
         // probes for HEVC. Avoid repeated failed hwaccel setup before software

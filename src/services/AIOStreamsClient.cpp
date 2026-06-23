@@ -8,8 +8,6 @@
 #include <QRegularExpression>
 #include <QUrl>
 
-#include <algorithm>
-
 #include <chrono>
 
 AIOStreamsClient::AIOStreamsClient(QObject *parent)
@@ -63,9 +61,11 @@ void AIOStreamsClient::fetchStreams(const QString &type, const QString &id)
             }
         }
 
-        // For an episode request, flag releases that have no explicit episode
-        // marker (S01 packs, "Complete", etc.) and rank them after the actual
-        // single-episode releases so a pack isn't the top hit.
+        // For an episode request, flag releases with no explicit episode
+        // marker (S01 packs, "Complete", etc.) so the UI can badge them.
+        // The addon's own order is kept: it already ranks by quality and
+        // cache status, and a cached pack streams the single episode file
+        // just as fast.
         if (type == QStringLiteral("series")) {
             static const QRegularExpression episodeMarker(
                 QStringLiteral("(?i)(s\\d{1,2}[ ._-]*e\\d{1,3}|(?<![a-z0-9])\\d{1,2}x\\d{1,3}(?![a-z0-9]))"));
@@ -77,10 +77,6 @@ void AIOStreamsClient::fetchStreams(const QString &type, const QString &id)
                 item.insert(QStringLiteral("seasonPack"), !episodeMarker.match(name).hasMatch());
                 entry = item;
             }
-            std::stable_sort(streams.begin(), streams.end(), [](const QVariant &a, const QVariant &b) {
-                return a.toMap().value(QStringLiteral("seasonPack")).toBool()
-                     < b.toMap().value(QStringLiteral("seasonPack")).toBool();
-            });
         }
 
         emit streamsReady(streams);
