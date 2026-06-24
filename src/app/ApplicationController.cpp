@@ -15,6 +15,7 @@ ApplicationController::ApplicationController(QObject *parent)
     m_cinemeta.setBaseUrl(m_metadataUrl);
     m_subtitleLanguage = settings.value(QStringLiteral("subtitles/language"), QStringLiteral("eng")).toString();
     m_uiScale = settings.value(QStringLiteral("ui/scaleFactor"), 1.0).toDouble();
+    m_showPosterRatings = settings.value(QStringLiteral("ui/showPosterRatings"), true).toBool();
     m_mpvHardwareDecoding = settings.value(QStringLiteral("mpv/hardwareDecoding"), true).toBool();
     m_mpvGpuNext = settings.value(QStringLiteral("mpv/gpuNext"), false).toBool();
     m_mpvHdrHint = settings.value(QStringLiteral("mpv/hdrHint"), false).toBool();
@@ -227,6 +228,7 @@ QString ApplicationController::aioStreamsUrl() const { return m_aioStreamsUrl; }
 QString ApplicationController::metadataUrl() const { return m_metadataUrl; }
 QString ApplicationController::subtitleLanguage() const { return m_subtitleLanguage; }
 double ApplicationController::uiScale() const { return m_uiScale; }
+bool ApplicationController::showPosterRatings() const { return m_showPosterRatings; }
 bool ApplicationController::mpvHardwareDecoding() const { return m_mpvHardwareDecoding; }
 bool ApplicationController::mpvGpuNext() const { return m_mpvGpuNext; }
 bool ApplicationController::mpvHdrHint() const { return m_mpvHdrHint; }
@@ -421,6 +423,17 @@ void ApplicationController::setSubtitleLanguage(const QString &language)
     setStatusMessage(language == QStringLiteral("off")
                          ? QStringLiteral("Subtitles disabled")
                          : QStringLiteral("Subtitle language set to %1").arg(language));
+}
+
+void ApplicationController::setShowPosterRatings(bool enabled)
+{
+    if (m_showPosterRatings == enabled) {
+        return;
+    }
+
+    m_showPosterRatings = enabled;
+    QSettings().setValue(QStringLiteral("ui/showPosterRatings"), enabled);
+    emit showPosterRatingsChanged();
 }
 
 void ApplicationController::setMpvHardwareDecoding(bool enabled)

@@ -407,7 +407,8 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     spacing: Theme.s8
                                     Pill {
-                                        visible: !!appController.selectedMeta.imdbRating
+                                        visible: appController.showPosterRatings
+                                                 && !!appController.selectedMeta.imdbRating
                                         text: "★ " + (appController.selectedMeta.imdbRating || "")
                                         accentColor: Theme.gold
                                     }
@@ -948,6 +949,20 @@ ApplicationWindow {
                             AppButton {
                                 text: "Refresh now"
                                 onClicked: appController.refreshImdbRatings()
+                            }
+                        }
+
+                        CheckBox {
+                            id: posterRatingsToggle
+                            text: "Show IMDb scores on posters (keeps episode ratings)"
+                            checked: appController.showPosterRatings
+                            onToggled: appController.showPosterRatings = checked
+                            contentItem: Text {
+                                text: posterRatingsToggle.text
+                                color: Theme.textDim
+                                font.pixelSize: Theme.fSmall
+                                leftPadding: posterRatingsToggle.indicator.width + Theme.s8
+                                verticalAlignment: Text.AlignVCenter
                             }
                         }
                     }

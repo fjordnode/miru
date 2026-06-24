@@ -23,74 +23,75 @@ Item {
         width: parent.width
         height: root.posterHeight
 
-        Rectangle {
-            id: placeholder
-            anchors.fill: parent
-            radius: Theme.rLg
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.surfaceAlt }
-                GradientStop { position: 1.0; color: Theme.surface }
-            }
-            border.color: Theme.line
-            Text {
-                anchors.centerIn: parent
-                text: (root.item.name || "?").charAt(0).toUpperCase()
-                color: Theme.textMute
-                font.pixelSize: 48
-                font.bold: true
-            }
-        }
-
-        Image {
-            id: poster
-            anchors.fill: parent
-            source: root.item.poster || ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            visible: false
-        }
-
-        MultiEffect {
-            anchors.fill: poster
-            source: poster
-            visible: poster.status === Image.Ready
-            maskEnabled: true
-            maskSource: posterMask
-            shadowEnabled: true
-            shadowColor: "#000000"
-            shadowBlur: hover.hovered ? 1.0 : 0.6
-            shadowVerticalOffset: hover.hovered ? 10 : 5
-            shadowOpacity: 0.55
-            Behavior on shadowBlur { NumberAnimation { duration: Theme.durMed } }
-        }
-
+        // The placeholder, artwork and legibility gradient render into one
+        // layer that is rounded by a single mask and given one drop shadow,
+        // so every corner matches instead of stacking separately-rounded
+        // layers that mismatch at the edges.
         Item {
-            id: posterMask
-            anchors.fill: poster
+            id: posterContent
+            anchors.fill: parent
             layer.enabled: true
-            visible: false
+            layer.smooth: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: posterMask
+                shadowEnabled: true
+                shadowColor: "#000000"
+                shadowBlur: hover.hovered ? 1.0 : 0.6
+                shadowVerticalOffset: hover.hovered ? 10 : 5
+                shadowOpacity: 0.55
+                Behavior on shadowBlur { NumberAnimation { duration: Theme.durMed } }
+            }
+
+            Rectangle {
+                id: placeholder
+                anchors.fill: parent
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Theme.surfaceAlt }
+                    GradientStop { position: 1.0; color: Theme.surface }
+                }
+                Text {
+                    anchors.centerIn: parent
+                    text: (root.item.name || "?").charAt(0).toUpperCase()
+                    color: Theme.textMute
+                    font.pixelSize: 48
+                    font.bold: true
+                }
+            }
+
+            Image {
+                id: poster
+                anchors.fill: parent
+                source: root.item.poster || ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+            }
+
+            // legibility gradient behind the rating badge
             Rectangle {
                 anchors.fill: parent
-                radius: Theme.rLg
+                visible: ratingPill.visible
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#88000000" }
+                    GradientStop { position: 0.3; color: "transparent" }
+                }
             }
         }
 
-        // legibility gradient behind the rating badge
+        // rounded shape that masks posterContent
         Rectangle {
+            id: posterMask
             anchors.fill: parent
             radius: Theme.rLg
-            visible: ratingPill.visible
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#88000000" }
-                GradientStop { position: 0.3; color: "transparent" }
-            }
+            visible: false
+            layer.enabled: true
         }
 
-        // rating badge
+        // rating badge (crisp, above the masked artwork)
         Rectangle {
             id: ratingPill
-            visible: !!root.item.imdbRating
+            visible: appController.showPosterRatings && !!root.item.imdbRating
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: Theme.s8

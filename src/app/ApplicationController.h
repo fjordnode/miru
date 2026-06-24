@@ -24,6 +24,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString subtitleLanguage READ subtitleLanguage WRITE setSubtitleLanguage NOTIFY subtitleLanguageChanged)
     Q_PROPERTY(QString imdbRatingsUpdated READ imdbRatingsUpdated NOTIFY imdbRatingsUpdatedChanged)
     Q_PROPERTY(double uiScale READ uiScale WRITE setUiScale NOTIFY uiScaleChanged)
+    Q_PROPERTY(bool showPosterRatings READ showPosterRatings WRITE setShowPosterRatings NOTIFY showPosterRatingsChanged)
     Q_PROPERTY(bool mpvHardwareDecoding READ mpvHardwareDecoding WRITE setMpvHardwareDecoding NOTIFY mpvHardwareDecodingChanged)
     Q_PROPERTY(bool mpvGpuNext READ mpvGpuNext WRITE setMpvGpuNext NOTIFY mpvGpuNextChanged)
     Q_PROPERTY(bool mpvHdrHint READ mpvHdrHint WRITE setMpvHdrHint NOTIFY mpvHdrHintChanged)
@@ -45,6 +46,7 @@ public:
     QString subtitleLanguage() const;
     QString imdbRatingsUpdated() const;
     double uiScale() const;
+    bool showPosterRatings() const;
     bool mpvHardwareDecoding() const;
     bool mpvGpuNext() const;
     bool mpvHdrHint() const;
@@ -64,6 +66,7 @@ public:
     void setMetadataUrl(const QString &url);
     void setSubtitleLanguage(const QString &language);
     void setUiScale(double scale);
+    void setShowPosterRatings(bool enabled);
     void setMpvHardwareDecoding(bool enabled);
     void setMpvGpuNext(bool enabled);
     void setMpvHdrHint(bool enabled);
@@ -80,6 +83,7 @@ signals:
     void subtitleLanguageChanged();
     void imdbRatingsUpdatedChanged();
     void uiScaleChanged();
+    void showPosterRatingsChanged();
     void mpvHardwareDecodingChanged();
     void mpvGpuNextChanged();
     void mpvHdrHintChanged();
@@ -109,6 +113,7 @@ private:
     QString m_metadataUrl;
     QString m_subtitleLanguage;
     double m_uiScale = 1.0;
+    bool m_showPosterRatings = true;
     bool m_mpvHardwareDecoding = true;
     bool m_mpvGpuNext = false;
     bool m_mpvHdrHint = false;
