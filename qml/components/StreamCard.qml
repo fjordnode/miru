@@ -58,6 +58,15 @@ Rectangle {
                 Layout.topMargin: Theme.s4
                 spacing: Theme.s8
 
+                // LOCAL leads the badge row
+                BadgePill {
+                    visible: !!root.stream.local
+                    label: "LOCAL"
+                    bgColor: "transparent"
+                    outlineColor: Theme.success
+                    textColor: Theme.success
+                }
+
                 Repeater {
                     model: root.stream.badges || []
                     delegate: BadgePill {
@@ -77,14 +86,6 @@ Rectangle {
                     textColor: Theme.textDim
                 }
 
-                // LOCAL first, then SEASON PACK
-                BadgePill {
-                    visible: !!root.stream.local
-                    label: "LOCAL"
-                    bgColor: Theme.success
-                    outlineColor: Theme.success
-                    textColor: Theme.bg
-                }
                 BadgePill {
                     visible: !!root.stream.seasonPack
                     label: "SEASON PACK"
