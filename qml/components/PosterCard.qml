@@ -13,15 +13,19 @@ Item {
 
     readonly property real posterHeight: width * 1.5   // 2:3 poster
 
-    scale: hover.hovered ? 1.04 : 1.0
     z: hover.hovered ? 1 : 0
-    Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
 
     // ---- Poster artwork (rounded + drop shadow) ---------------------------
     Item {
         id: posterFrame
         width: parent.width
         height: root.posterHeight
+
+        // Zoom only the artwork on hover. The title/year below keep their
+        // layout position, so they never shift or get clipped by the rail.
+        transformOrigin: Item.Center
+        scale: hover.hovered ? 1.04 : 1.0
+        Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
 
         // The placeholder, artwork and legibility gradient render into one
         // layer that is rounded by a single mask and given one drop shadow,
