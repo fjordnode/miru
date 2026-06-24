@@ -53,7 +53,6 @@ ApplicationWindow {
         if (query.trim().length === 0)
             return
         appController.search(query)
-        resultFilterField.clear()
         page = 0
     }
 
@@ -210,9 +209,8 @@ ApplicationWindow {
                 width: parent.width
                 spacing: Theme.s32
 
-                // hero (hidden while searching so results sit at the top)
+                // hero
                 Item {
-                    visible: appController.searchResults.length === 0
                     Layout.fillWidth: true
                     Layout.topMargin: Theme.s24
                     Layout.leftMargin: Theme.s32
@@ -296,46 +294,13 @@ ApplicationWindow {
                     Layout.bottomMargin: Theme.s32
                     spacing: Theme.s32
 
-                    // search results (while searching), with a client-side
-                    // filter so users can narrow the matches by title.
-                    ColumnLayout {
-                        id: searchResultsBlock
+                    // search results (while searching)
+                    SectionRail {
                         visible: appController.searchResults.length > 0
-                        Layout.fillWidth: true
-                        spacing: Theme.s12
-
-                        property string resultFilter: ""
-                        readonly property var filteredResults: {
-                            var all = appController.searchResults
-                            var q = resultFilter.trim().toLowerCase()
-                            if (q.length === 0)
-                                return all
-                            var out = []
-                            for (var i = 0; i < all.length; ++i) {
-                                var it = all[i]
-                                if ((it.name || "").toLowerCase().indexOf(q) !== -1)
-                                    out.push(it)
-                            }
-                            return out
-                        }
-
-                        SearchField {
-                            id: resultFilterField
-                            Layout.preferredWidth: 320
-                            placeholderText: "Filter results…"
-                            onTextChanged: searchResultsBlock.resultFilter = text
-                            onCleared: searchResultsBlock.resultFilter = ""
-                        }
-
-                        SectionRail {
-                            Layout.fillWidth: true
-                            title: "Search Results"
-                            subtitle: searchResultsBlock.filteredResults.length
-                                      + " of " + appController.searchResults.length
-                                      + " matches"
-                            model: searchResultsBlock.filteredResults
-                            onOpenRequested: item => root.openDetails(item)
-                        }
+                        title: "Search Results"
+                        subtitle: appController.searchResults.length + " matches"
+                        model: appController.searchResults
+                        onOpenRequested: item => root.openDetails(item)
                     }
 
                     // category rails discovered from the metadata addon.
@@ -528,10 +493,30 @@ ApplicationWindow {
 
                     // ---- Releases for the selected episode / movie ----
                     ColumnLayout {
+                        id: releasesColumn
                         Layout.fillWidth: true
                         Layout.horizontalStretchFactor: 9
                         Layout.alignment: Qt.AlignTop
                         spacing: Theme.s12
+
+                        // Client-side filter over the loaded releases. Each
+                        // entry keeps its original index so playStream() still
+                        // targets the right stream in the unfiltered list.
+                        property string releaseFilter: ""
+                        readonly property var filteredStreams: {
+                            var all = appController.streams
+                            var q = releaseFilter.trim().toLowerCase()
+                            var out = []
+                            for (var i = 0; i < all.length; ++i) {
+                                var s = all[i]
+                                if (q.length === 0
+                                    || ((s.title || "") + " " + (s.filename || "") + " "
+                                        + (s.name || "") + " " + (s.description || ""))
+                                       .toLowerCase().indexOf(q) !== -1)
+                                    out.push({ stream: s, index: i })
+                            }
+                            return out
+                        }
 
                         RowLayout {
                             Layout.fillWidth: true
@@ -561,6 +546,16 @@ ApplicationWindow {
                             text: "Click a release to play in mpv"
                             color: Theme.textMute
                             font.pixelSize: Theme.fSmall
+                        }
+
+                        // filter the loaded releases by name / quality / group
+                        SearchField {
+                            id: releaseFilterField
+                            visible: appController.streams.length > 0
+                            Layout.fillWidth: true
+                            placeholderText: "Filter releases… (e.g. 2160p, FLUX, LOCAL, REMUX)"
+                            onTextChanged: releasesColumn.releaseFilter = text
+                            onCleared: releasesColumn.releaseFilter = ""
                         }
 
                         // searching / empty hint
@@ -593,14 +588,23 @@ ApplicationWindow {
                             }
                         }
 
+                        // no-match hint when the filter excludes everything
+                        Text {
+                            visible: appController.streams.length > 0
+                                     && releasesColumn.filteredStreams.length === 0
+                            text: "No releases match the filter"
+                            color: Theme.textMute
+                            font.pixelSize: Theme.fBody
+                            Layout.topMargin: Theme.s8
+                        }
+
                         Repeater {
-                            model: appController.streams
+                            model: releasesColumn.filteredStreams
                             delegate: StreamCard {
                                 required property var modelData
-                                required property int index
                                 Layout.fillWidth: true
-                                stream: modelData
-                                onPlayRequested: appController.playStream(index)
+                                stream: modelData.stream
+                                onPlayRequested: appController.playStream(modelData.index)
                             }
                         }
                     }
