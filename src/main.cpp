@@ -2,10 +2,12 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <qqml.h>
 #include <QQuickStyle>
 #include <QSettings>
 
 #include "app/ApplicationController.h"
+#include "player/MpvVideoSurface.h"
 
 int main(int argc, char *argv[])
 {
@@ -30,6 +32,8 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     ApplicationController controller;
+
+    qmlRegisterType<MpvVideoSurface>("StremioLinux", 1, 0, "MpvVideoSurface");
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty("appController", &controller);

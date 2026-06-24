@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -40,22 +41,23 @@ ExternalMpvPlayer::ExternalMpvPlayer(QObject *parent)
 {
 }
 
-void ExternalMpvPlayer::play(const QString &url, const QString &title,
-                               const QVariantMap &headers, const QStringList &subtitleUrls,
-                               bool enableHwdec, bool enableGpuNext, bool enableHdrHint,
-                               const QStringList &extraArgs, double startSeconds)
+bool ExternalMpvPlayer::play(const QString &url, const QString &title,
+                                const QVariantMap &headers, const QStringList &subtitleUrls,
+                                bool enableHwdec, bool enableGpuNext, bool enableHdrHint,
+                                const QStringList &extraArgs, double startSeconds,
+                                qulonglong windowId)
 {
     resetWatcher(true);
 
     if (url.trimmed().isEmpty()) {
         emit errorOccurred(QStringLiteral("Cannot play an empty stream URL"));
-        return;
+        return false;
     }
 
     const QString mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
     if (mpv.isEmpty()) {
         emit errorOccurred(QStringLiteral("mpv was not found on PATH"));
-        return;
+        return false;
     }
 
     QStringList args;
@@ -65,6 +67,10 @@ void ExternalMpvPlayer::play(const QString &url, const QString &title,
             .arg(QDateTime::currentMSecsSinceEpoch()));
     args << QStringLiteral("--input-ipc-server=%1").arg(socketPath);
     args << QStringLiteral("--save-position-on-quit=no");
+    if (windowId > 0) {
+        args << QStringLiteral("--wid=%1").arg(windowId);
+        args << QStringLiteral("--force-window=yes");
+    }
     if (startSeconds > 0.0) {
         args << QStringLiteral("--start=%1").arg(startSeconds, 0, 'f', 1);
     }
@@ -125,13 +131,50 @@ void ExternalMpvPlayer::play(const QString &url, const QString &title,
     args << extraArgs;
     args << url.trimmed();
 
-    if (!QProcess::startDetached(mpv, args)) {
+    if (windowId > 0) {
+        m_process = new QProcess(this);
+        connect(m_process, &QProcess::finished, this, &ExternalMpvPlayer::finishPlayback);
+        connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+            if (error == QProcess::FailedToStart) {
+                emit errorOccurred(QStringLiteral("Failed to start embedded mpv"));
+            }
+        });
+        m_process->start(mpv, args);
+        if (!m_process->waitForStarted(3000)) {
+            emit errorOccurred(QStringLiteral("Failed to start embedded mpv"));
+            m_process->deleteLater();
+            m_process = nullptr;
+            return false;
+        }
+    } else if (!QProcess::startDetached(mpv, args)) {
         emit errorOccurred(QStringLiteral("Failed to start mpv"));
-        return;
+        return false;
     }
 
     startWatcher(socketPath);
     emit playbackStarted();
+    return true;
+}
+
+void ExternalMpvPlayer::stop()
+{
+    sendCommand(QJsonArray{QStringLiteral("quit")});
+    resetWatcher(true);
+}
+
+void ExternalMpvPlayer::setPaused(bool paused)
+{
+    sendCommand(QJsonArray{QStringLiteral("set_property"), QStringLiteral("pause"), paused});
+}
+
+void ExternalMpvPlayer::seek(double seconds)
+{
+    sendCommand(QJsonArray{QStringLiteral("seek"), seconds, QStringLiteral("absolute")});
+}
+
+void ExternalMpvPlayer::seekRelative(double seconds)
+{
+    sendCommand(QJsonArray{QStringLiteral("seek"), seconds, QStringLiteral("relative")});
 }
 
 void ExternalMpvPlayer::resetWatcher(bool emitFinished)
@@ -148,11 +191,25 @@ void ExternalMpvPlayer::resetWatcher(bool emitFinished)
         m_socket = nullptr;
     }
 
+    if (m_process) {
+        QProcess *process = m_process;
+        m_process = nullptr;
+        process->disconnect(this);
+        if (process->state() != QProcess::NotRunning) {
+            process->terminate();
+            if (!process->waitForFinished(1000)) {
+                process->kill();
+            }
+        }
+        process->deleteLater();
+    }
+
     m_readBuffer.clear();
     m_socketPath.clear();
     m_connectAttempts = 0;
     m_lastPosition = 0.0;
     m_lastDuration = 0.0;
+    m_paused = false;
     m_finishEmitted = false;
     m_progressTimer.invalidate();
 }
@@ -186,6 +243,8 @@ void ExternalMpvPlayer::retryConnect()
         }
         m_socket->write("{\"command\":[\"observe_property\",1,\"time-pos\"]}\n");
         m_socket->write("{\"command\":[\"observe_property\",2,\"duration\"]}\n");
+        m_socket->write("{\"command\":[\"observe_property\",3,\"pause\"]}\n");
+        m_socket->write("{\"command\":[\"observe_property\",4,\"eof-reached\"]}\n");
         m_socket->flush();
     });
     connect(m_socket, &QLocalSocket::readyRead, this, &ExternalMpvPlayer::handleReadyRead);
@@ -227,6 +286,9 @@ void ExternalMpvPlayer::handleReadyRead()
 
         const QJsonDocument doc = QJsonDocument::fromJson(line);
         const QJsonObject object = doc.object();
+        if (object.value(QStringLiteral("event")).toString() == QStringLiteral("end-file")) {
+            finishPlayback();
+        }
         if (object.value(QStringLiteral("event")).toString() == QStringLiteral("property-change")) {
             const int id = object.value(QStringLiteral("id")).toInt();
             const QJsonValue data = object.value(QStringLiteral("data"));
@@ -237,11 +299,33 @@ void ExternalMpvPlayer::handleReadyRead()
                     m_lastDuration = data.toDouble();
                 }
                 emitProgressIfDue();
+            } else if (id == 3 && data.isBool()) {
+                const bool paused = data.toBool();
+                if (m_paused != paused) {
+                    m_paused = paused;
+                    emit pauseChanged(paused);
+                }
+            } else if (id == 4 && data.isBool() && data.toBool()) {
+                finishPlayback();
             }
         }
 
         newline = m_readBuffer.indexOf('\n');
     }
+}
+
+bool ExternalMpvPlayer::sendCommand(const QJsonArray &command)
+{
+    if (!m_socket || m_socket->state() != QLocalSocket::ConnectedState) {
+        return false;
+    }
+
+    QJsonObject object;
+    object.insert(QStringLiteral("command"), command);
+    m_socket->write(QJsonDocument(object).toJson(QJsonDocument::Compact));
+    m_socket->write("\n");
+    m_socket->flush();
+    return true;
 }
 
 void ExternalMpvPlayer::emitProgressIfDue(bool force)

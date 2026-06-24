@@ -28,6 +28,8 @@ qt_add_executable(stremio-linux
     src/services/ImdbRatings.h
     src/player/ExternalMpvPlayer.cpp
     src/player/ExternalMpvPlayer.h
+    src/player/MpvVideoSurface.cpp
+    src/player/MpvVideoSurface.h
 )
 
 qt_add_resources(stremio-linux "appresources"

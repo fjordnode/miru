@@ -18,6 +18,10 @@ ApplicationWindow {
     property var detailsItem: ({})
     property string baseId: ""
     property string selectedEpisodeId: ""
+    property int previousPage: 0
+    property string pendingPlaybackKind: ""
+    property int pendingStreamIndex: -1
+    property string pendingResumeKey: ""
 
     readonly property bool isSeries: detailsItem && detailsItem.type === "series"
 
@@ -58,6 +62,77 @@ ApplicationWindow {
             return
         appController.search(query)
         page = 0
+    }
+
+    function playStreamIndex(index) {
+        if (appController.playerMode === "embedded") {
+            previousPage = page
+            pendingPlaybackKind = "stream"
+            pendingStreamIndex = index
+            pendingResumeKey = ""
+            page = 3
+            Qt.callLater(startPendingPlayback)
+        } else {
+            appController.playStream(index)
+        }
+    }
+
+    function resumeItem(item) {
+        if (!item.stream || !item.stream.url) {
+            openDetails(item)
+            return
+        }
+
+        if (appController.playerMode === "embedded") {
+            previousPage = page
+            pendingPlaybackKind = "resume"
+            pendingStreamIndex = -1
+            pendingResumeKey = item.key
+            page = 3
+            Qt.callLater(startPendingPlayback)
+        } else {
+            appController.resumeContinueWatching(item.key)
+        }
+    }
+
+    function startPendingPlayback() {
+        if (page !== 3 || pendingPlaybackKind === "")
+            return
+        if (!playerSurface || playerSurface.windowId === 0) {
+            Qt.callLater(startPendingPlayback)
+            return
+        }
+
+        let embeddedStarted = false
+        if (pendingPlaybackKind === "stream")
+            embeddedStarted = appController.playStreamEmbedded(pendingStreamIndex, playerSurface.windowId)
+        else if (pendingPlaybackKind === "resume")
+            embeddedStarted = appController.resumeContinueWatchingEmbedded(pendingResumeKey, playerSurface.windowId)
+
+        pendingPlaybackKind = ""
+        pendingStreamIndex = -1
+        pendingResumeKey = ""
+        if (!embeddedStarted)
+            page = previousPage
+    }
+
+    function closePlayer() {
+        appController.stopPlayback()
+        pendingPlaybackKind = ""
+        page = previousPage
+    }
+
+    function formatTime(seconds) {
+        if (!seconds || seconds < 0)
+            return "0:00"
+        const total = Math.floor(seconds)
+        const h = Math.floor(total / 3600)
+        const m = Math.floor((total % 3600) / 60)
+        const s = total % 60
+        const ss = s < 10 ? "0" + s : "" + s
+        if (h > 0)
+            return h + ":" + (m < 10 ? "0" + m : "" + m) + ":" + ss
+        return m + ":" + ss
     }
 
     // For a series, auto-select the first episode once its metadata arrives,
@@ -144,6 +219,9 @@ ApplicationWindow {
                 variant: "nav"
                 active: root.page === 0 || root.page === 1
                 onClicked: {
+                    if (root.page === 3)
+                        appController.stopPlayback()
+                    root.pendingPlaybackKind = ""
                     searchField.clear()
                     appController.clearSearch()
                     root.page = 0
@@ -153,7 +231,12 @@ ApplicationWindow {
                 text: "Settings"
                 variant: "nav"
                 active: root.page === 2
-                onClicked: root.page = 2
+                onClicked: {
+                    if (root.page === 3)
+                        appController.stopPlayback()
+                    root.pendingPlaybackKind = ""
+                    root.page = 2
+                }
             }
 
             Item { Layout.fillWidth: true }
@@ -253,12 +336,7 @@ ApplicationWindow {
                         model: appController.continueWatching
                         delegate: ResumeCard {
                             item: modelData
-                            onClicked: clickedItem => {
-                                if (clickedItem.stream && clickedItem.stream.url)
-                                    appController.resumeContinueWatching(clickedItem.key)
-                                else
-                                    root.openDetails(clickedItem)
-                            }
+                            onClicked: clickedItem => root.resumeItem(clickedItem)
                             onRemoveRequested: key => appController.removeContinueWatching(key)
                         }
                     }
@@ -582,7 +660,7 @@ ApplicationWindow {
                                 required property var modelData
                                 Layout.fillWidth: true
                                 stream: modelData.stream
-                                onPlayRequested: appController.playStream(modelData.index)
+                                onPlayRequested: root.playStreamIndex(modelData.index)
                             }
                         }
                     }
@@ -733,7 +811,23 @@ ApplicationWindow {
 
                 SettingsCard {
                     title: "Playback"
-                    description: "External mpv is used for playback. The app always passes stream URL, auth headers, subtitles and safe network options; rendering/HDR choices are configurable below. Custom args are appended last so they can override the defaults."
+                    description: "Choose embedded playback inside the app or the detached external mpv fallback. The app always passes stream URL, auth headers, subtitles and safe network options; rendering/HDR choices are configurable below. Custom args are appended last so they can override the defaults."
+
+                    Flow {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.s8
+                        spacing: Theme.s8
+                        ChoiceChip {
+                            label: "External"
+                            current: appController.playerMode === "external"
+                            onClicked: appController.playerMode = "external"
+                        }
+                        ChoiceChip {
+                            label: "Embedded"
+                            current: appController.playerMode === "embedded"
+                            onClicked: appController.playerMode = "embedded"
+                        }
+                    }
 
                     SettingsCheck {
                         text: "Hardware decoding (--hwdec=auto-safe)"
@@ -783,6 +877,133 @@ ApplicationWindow {
 
                 // bottom padding so the last card clears the status bar
                 Item { Layout.preferredHeight: Theme.s32 }
+            }
+        }
+
+        // ---- Player --------------------------------------------------------
+        Item {
+            Rectangle {
+                anchors.fill: parent
+                color: "#020308"
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.s24
+                spacing: Theme.s16
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s12
+
+                    AppButton {
+                        text: "‹  Back"
+                        onClicked: root.closePlayer()
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: appController.playbackTitle || "Embedded player"
+                        color: Theme.text
+                        font.pixelSize: Theme.fH3
+                        font.bold: true
+                        elide: Text.ElideRight
+                    }
+                    Pill {
+                        text: "Embedded mpv"
+                        accentColor: Theme.accent
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumHeight: 360
+                    color: "black"
+                    border.color: Theme.line
+                    border.width: 1
+                    clip: true
+
+                    MpvVideoSurface {
+                        id: playerSurface
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        onWindowIdChanged: root.startPendingPlayback()
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        visible: !appController.playbackActive && root.pendingPlaybackKind !== ""
+                        text: "Starting mpv…"
+                        color: Theme.textMute
+                        font.pixelSize: Theme.fBody
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: 92
+                    radius: Theme.rLg
+                    color: Theme.bgElevated
+                    border.color: Theme.line
+                    border.width: 1
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.s12
+                        spacing: Theme.s8
+
+                        Slider {
+                            id: seekSlider
+                            Layout.fillWidth: true
+                            from: 0
+                            to: Math.max(1, appController.playbackDuration)
+                            value: 0
+                            enabled: appController.playbackDuration > 0
+                            onMoved: appController.seekPlayback(value)
+
+                            Binding on value {
+                                when: !seekSlider.pressed
+                                value: appController.playbackPosition
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.s8
+
+                            AppButton {
+                                text: appController.playbackPaused ? "Play" : "Pause"
+                                enabled: appController.playbackActive
+                                onClicked: appController.setPlaybackPaused(!appController.playbackPaused)
+                            }
+                            AppButton {
+                                text: "-10s"
+                                enabled: appController.playbackActive
+                                onClicked: appController.seekPlaybackRelative(-10)
+                            }
+                            AppButton {
+                                text: "+10s"
+                                enabled: appController.playbackActive
+                                onClicked: appController.seekPlaybackRelative(10)
+                            }
+                            AppButton {
+                                text: "Stop"
+                                variant: "danger"
+                                enabled: appController.playbackActive
+                                onClicked: root.closePlayer()
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            Text {
+                                text: root.formatTime(appController.playbackPosition)
+                                      + " / " + root.formatTime(appController.playbackDuration)
+                                color: Theme.textDim
+                                font.pixelSize: Theme.fSmall
+                            }
+                        }
+                    }
+                }
             }
         }
     }

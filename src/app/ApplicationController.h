@@ -31,6 +31,13 @@ class ApplicationController : public QObject
     Q_PROPERTY(bool mpvGpuNext READ mpvGpuNext WRITE setMpvGpuNext NOTIFY mpvGpuNextChanged)
     Q_PROPERTY(bool mpvHdrHint READ mpvHdrHint WRITE setMpvHdrHint NOTIFY mpvHdrHintChanged)
     Q_PROPERTY(QString mpvExtraArgs READ mpvExtraArgs WRITE setMpvExtraArgs NOTIFY mpvExtraArgsChanged)
+    Q_PROPERTY(QString playerMode READ playerMode WRITE setPlayerMode NOTIFY playerModeChanged)
+    Q_PROPERTY(bool playbackActive READ playbackActive NOTIFY playbackStateChanged)
+    Q_PROPERTY(bool playbackEmbedded READ playbackEmbedded NOTIFY playbackStateChanged)
+    Q_PROPERTY(bool playbackPaused READ playbackPaused NOTIFY playbackStateChanged)
+    Q_PROPERTY(QString playbackTitle READ playbackTitle NOTIFY playbackStateChanged)
+    Q_PROPERTY(double playbackPosition READ playbackPosition NOTIFY playbackPositionChanged)
+    Q_PROPERTY(double playbackDuration READ playbackDuration NOTIFY playbackPositionChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
     Q_PROPERTY(QString statusMessage READ statusMessage NOTIFY statusMessageChanged)
 
@@ -54,6 +61,13 @@ public:
     bool mpvGpuNext() const;
     bool mpvHdrHint() const;
     QString mpvExtraArgs() const;
+    QString playerMode() const;
+    bool playbackActive() const;
+    bool playbackEmbedded() const;
+    bool playbackPaused() const;
+    QString playbackTitle() const;
+    double playbackPosition() const;
+    double playbackDuration() const;
     bool loading() const;
     QString statusMessage() const;
 
@@ -64,8 +78,14 @@ public:
     Q_INVOKABLE void loadStreams(const QString &type, const QString &id);
     Q_INVOKABLE void clearStreams();
     Q_INVOKABLE void playStream(int index);
+    Q_INVOKABLE bool playStreamEmbedded(int index, qulonglong windowId);
     Q_INVOKABLE void resumeContinueWatching(const QString &key);
+    Q_INVOKABLE bool resumeContinueWatchingEmbedded(const QString &key, qulonglong windowId);
     Q_INVOKABLE void removeContinueWatching(const QString &key);
+    Q_INVOKABLE void stopPlayback();
+    Q_INVOKABLE void setPlaybackPaused(bool paused);
+    Q_INVOKABLE void seekPlayback(double seconds);
+    Q_INVOKABLE void seekPlaybackRelative(double seconds);
     Q_INVOKABLE void refreshImdbRatings();
     Q_INVOKABLE void setAioStreamsUrl(const QString &url);
     void setMetadataUrl(const QString &url);
@@ -76,6 +96,7 @@ public:
     void setMpvGpuNext(bool enabled);
     void setMpvHdrHint(bool enabled);
     void setMpvExtraArgs(const QString &args);
+    void setPlayerMode(const QString &mode);
 
 signals:
     void homeSectionsChanged();
@@ -94,10 +115,19 @@ signals:
     void mpvGpuNextChanged();
     void mpvHdrHintChanged();
     void mpvExtraArgsChanged();
+    void playerModeChanged();
+    void playbackStateChanged();
+    void playbackPositionChanged();
     void loadingChanged();
     void statusMessageChanged();
 
 private:
+    bool playStreamWithWindow(int index, qulonglong windowId);
+    bool resumeContinueWatchingWithWindow(const QString &key, qulonglong windowId);
+    bool startPlayback(const QString &url, const QString &title, const QVariantMap &headers,
+                       const QStringList &subtitleUrls, double startSeconds,
+                       qulonglong windowId);
+    void setPlaybackState(bool active, bool embedded, const QString &title = QString());
     void setLoading(bool loading);
     void setStreamsLoading(bool loading);
     void setStatusMessage(const QString &message);
@@ -129,6 +159,13 @@ private:
     bool m_mpvGpuNext = false;
     bool m_mpvHdrHint = false;
     QString m_mpvExtraArgs;
+    QString m_playerMode = QStringLiteral("external");
+    bool m_playbackActive = false;
+    bool m_playbackEmbedded = false;
+    bool m_playbackPaused = false;
+    QString m_playbackTitle;
+    double m_playbackPosition = 0.0;
+    double m_playbackDuration = 0.0;
     QString m_statusMessage;
     bool m_loading = false;
     bool m_streamsLoading = false;

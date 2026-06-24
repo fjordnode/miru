@@ -1,6 +1,7 @@
 #include "ApplicationController.h"
 
 #include <QDateTime>
+#include <QGuiApplication>
 #include <QProcess>
 #include <QSettings>
 #include <QVariant>
@@ -43,6 +44,10 @@ ApplicationController::ApplicationController(QObject *parent)
     m_mpvGpuNext = settings.value(QStringLiteral("mpv/gpuNext"), false).toBool();
     m_mpvHdrHint = settings.value(QStringLiteral("mpv/hdrHint"), false).toBool();
     m_mpvExtraArgs = settings.value(QStringLiteral("mpv/extraArgs")).toString();
+    m_playerMode = settings.value(QStringLiteral("mpv/playerMode"), QStringLiteral("external")).toString();
+    if (m_playerMode != QStringLiteral("embedded")) {
+        m_playerMode = QStringLiteral("external");
+    }
 
     connect(&m_cinemeta, &CinemetaClient::catalogsDiscovered, this, [this](const QVariantList &sections) {
         m_homeSections.clear();
@@ -130,16 +135,36 @@ ApplicationController::ApplicationController(QObject *parent)
     });
 
     connect(&m_player, &ExternalMpvPlayer::playbackStarted, this, [this]() {
-        setStatusMessage(QStringLiteral("Playback started in mpv"));
+        m_playbackActive = true;
+        emit playbackStateChanged();
+        setStatusMessage(m_playbackEmbedded ? QStringLiteral("Playback started embedded")
+                                            : QStringLiteral("Playback started in mpv"));
     });
 
     connect(&m_player, &ExternalMpvPlayer::positionChanged, this, [this](double position, double duration) {
+        m_playbackPosition = position;
+        m_playbackDuration = duration;
+        emit playbackPositionChanged();
         if (!m_currentPlaybackMedia.isEmpty()) {
             m_watchHistory.record(m_currentPlaybackMedia, position, duration);
         }
     });
 
+    connect(&m_player, &ExternalMpvPlayer::pauseChanged, this, [this](bool paused) {
+        if (m_playbackPaused == paused) {
+            return;
+        }
+        m_playbackPaused = paused;
+        emit playbackStateChanged();
+    });
+
     connect(&m_player, &ExternalMpvPlayer::playbackFinished, this, [this](double position, double duration) {
+        m_playbackActive = false;
+        m_playbackPosition = position;
+        m_playbackDuration = duration;
+        m_playbackPaused = false;
+        emit playbackStateChanged();
+        emit playbackPositionChanged();
         if (!m_currentPlaybackMedia.isEmpty()) {
             m_watchHistory.record(m_currentPlaybackMedia, position, duration);
         }
@@ -321,6 +346,13 @@ bool ApplicationController::mpvHardwareDecoding() const { return m_mpvHardwareDe
 bool ApplicationController::mpvGpuNext() const { return m_mpvGpuNext; }
 bool ApplicationController::mpvHdrHint() const { return m_mpvHdrHint; }
 QString ApplicationController::mpvExtraArgs() const { return m_mpvExtraArgs; }
+QString ApplicationController::playerMode() const { return m_playerMode; }
+bool ApplicationController::playbackActive() const { return m_playbackActive; }
+bool ApplicationController::playbackEmbedded() const { return m_playbackEmbedded; }
+bool ApplicationController::playbackPaused() const { return m_playbackPaused; }
+QString ApplicationController::playbackTitle() const { return m_playbackTitle; }
+double ApplicationController::playbackPosition() const { return m_playbackPosition; }
+double ApplicationController::playbackDuration() const { return m_playbackDuration; }
 
 QString ApplicationController::imdbRatingsUpdated() const
 {
@@ -423,8 +455,18 @@ void ApplicationController::clearStreams()
 
 void ApplicationController::playStream(int index)
 {
+    playStreamWithWindow(index, 0);
+}
+
+bool ApplicationController::playStreamEmbedded(int index, qulonglong windowId)
+{
+    return playStreamWithWindow(index, windowId);
+}
+
+bool ApplicationController::playStreamWithWindow(int index, qulonglong windowId)
+{
     if (index < 0 || index >= m_streams.size()) {
-        return;
+        return false;
     }
 
     const QVariantMap stream = m_streams.at(index).toMap();
@@ -452,30 +494,105 @@ void ApplicationController::playStream(int index)
     }
     const double startSeconds = m_watchHistory.positionFor(m_currentPlaybackMedia);
 
-    const QStringList extraArgs = QProcess::splitCommand(m_mpvExtraArgs);
-    m_player.play(url, title, headers, subtitleUrls,
-                  m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs, startSeconds);
+    return startPlayback(url, title, headers, subtitleUrls, startSeconds, windowId);
 }
 
 void ApplicationController::resumeContinueWatching(const QString &key)
+{
+    resumeContinueWatchingWithWindow(key, 0);
+}
+
+bool ApplicationController::resumeContinueWatchingEmbedded(const QString &key, qulonglong windowId)
+{
+    return resumeContinueWatchingWithWindow(key, windowId);
+}
+
+bool ApplicationController::resumeContinueWatchingWithWindow(const QString &key, qulonglong windowId)
 {
     const QVariantMap entry = m_watchHistory.entry(key);
     const QVariantMap stream = entry.value(QStringLiteral("stream")).toMap();
     const QString url = stream.value(QStringLiteral("url")).toString();
     if (entry.isEmpty() || url.trimmed().isEmpty()) {
         setStatusMessage(QStringLiteral("Saved release is unavailable; choose a release from details"));
-        return;
+        return false;
     }
 
     const QString title = stream.value(QStringLiteral("title")).toString();
     const QVariantMap headers = stream.value(QStringLiteral("headers")).toMap();
     const QStringList subtitleUrls = stringListValue(entry.value(QStringLiteral("subtitleUrls")));
-    const QStringList extraArgs = QProcess::splitCommand(m_mpvExtraArgs);
 
     m_currentPlaybackMedia = entry;
+    return startPlayback(url, title, headers, subtitleUrls, m_watchHistory.positionFor(entry), windowId);
+}
+
+bool ApplicationController::startPlayback(const QString &url, const QString &title, const QVariantMap &headers,
+                                          const QStringList &subtitleUrls, double startSeconds,
+                                          qulonglong windowId)
+{
+    const QStringList extraArgs = QProcess::splitCommand(m_mpvExtraArgs);
+    const bool embedded = windowId > 0;
+
+    if (embedded && QGuiApplication::platformName() != QStringLiteral("xcb")) {
+        setPlaybackState(false, false, title);
+        const bool started = m_player.play(url, title, headers, subtitleUrls,
+                                           m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
+                                           startSeconds, 0);
+        if (started) {
+            setStatusMessage(QStringLiteral("Embedded mpv needs X11/XWayland; using external mpv"));
+        }
+        return false;
+    }
+
+    setPlaybackState(false, embedded, title);
+
+    if (m_player.play(url, title, headers, subtitleUrls,
+                      m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
+                      startSeconds, windowId)) {
+        return embedded;
+    }
+
+    if (!embedded) {
+        return false;
+    }
+
+    setStatusMessage(QStringLiteral("Embedded mpv failed; falling back to external mpv"));
+    setPlaybackState(false, false, title);
     m_player.play(url, title, headers, subtitleUrls,
                   m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
-                  m_watchHistory.positionFor(entry));
+                  startSeconds, 0);
+    return false;
+}
+
+void ApplicationController::setPlaybackState(bool active, bool embedded, const QString &title)
+{
+    m_playbackActive = active;
+    m_playbackEmbedded = embedded;
+    m_playbackPaused = false;
+    m_playbackPosition = 0.0;
+    m_playbackDuration = 0.0;
+    m_playbackTitle = title;
+    emit playbackStateChanged();
+    emit playbackPositionChanged();
+}
+
+void ApplicationController::stopPlayback()
+{
+    m_player.stop();
+}
+
+void ApplicationController::setPlaybackPaused(bool paused)
+{
+    m_player.setPaused(paused);
+}
+
+void ApplicationController::seekPlayback(double seconds)
+{
+    m_player.seek(seconds);
+}
+
+void ApplicationController::seekPlaybackRelative(double seconds)
+{
+    m_player.seekRelative(seconds);
 }
 
 void ApplicationController::removeContinueWatching(const QString &key)
@@ -609,6 +726,23 @@ void ApplicationController::setMpvExtraArgs(const QString &args)
     emit mpvExtraArgsChanged();
     setStatusMessage(trimmed.isEmpty() ? QStringLiteral("Custom mpv args cleared")
                                        : QStringLiteral("Custom mpv args saved"));
+}
+
+void ApplicationController::setPlayerMode(const QString &mode)
+{
+    const QString normalized = mode == QStringLiteral("embedded")
+        ? QStringLiteral("embedded")
+        : QStringLiteral("external");
+    if (m_playerMode == normalized) {
+        return;
+    }
+
+    m_playerMode = normalized;
+    QSettings().setValue(QStringLiteral("mpv/playerMode"), normalized);
+    emit playerModeChanged();
+    setStatusMessage(normalized == QStringLiteral("embedded")
+                         ? QStringLiteral("Player mode set to Embedded")
+                         : QStringLiteral("Player mode set to External"));
 }
 
 void ApplicationController::setLoading(bool loading)
