@@ -64,6 +64,16 @@ ApplicationWindow {
         page = 0
     }
 
+    function searchResultsByType(type) {
+        const out = []
+        const results = appController.searchResults || []
+        for (let i = 0; i < results.length; ++i) {
+            if (results[i].type === type)
+                out.push(results[i])
+        }
+        return out
+    }
+
     function playStreamIndex(index) {
         if (appController.playerMode === "embedded") {
             previousPage = page
@@ -343,18 +353,31 @@ ApplicationWindow {
                 }
 
                 ColumnLayout {
+                    id: searchAndHomeColumn
+
                     Layout.fillWidth: true
                     Layout.leftMargin: Theme.s32
                     Layout.rightMargin: Theme.s32
                     Layout.bottomMargin: Theme.s32
                     spacing: Theme.s32
 
+                    readonly property var movieSearchResults: root.searchResultsByType("movie")
+                    readonly property var seriesSearchResults: root.searchResultsByType("series")
+
                     // search results (while searching)
                     SearchResultsGrid {
-                        visible: appController.searchResults.length > 0
-                        title: "Search Results"
-                        subtitle: appController.searchResults.length + " matches"
-                        model: appController.searchResults
+                        visible: searchAndHomeColumn.movieSearchResults.length > 0
+                        title: "Movies"
+                        subtitle: searchAndHomeColumn.movieSearchResults.length + " matches"
+                        model: searchAndHomeColumn.movieSearchResults
+                        onOpenRequested: item => root.openDetails(item)
+                    }
+
+                    SearchResultsGrid {
+                        visible: searchAndHomeColumn.seriesSearchResults.length > 0
+                        title: "TV Shows"
+                        subtitle: searchAndHomeColumn.seriesSearchResults.length + " matches"
+                        model: searchAndHomeColumn.seriesSearchResults
                         onOpenRequested: item => root.openDetails(item)
                     }
 
