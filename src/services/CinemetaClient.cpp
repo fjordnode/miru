@@ -185,6 +185,12 @@ QVariantMap CinemetaClient::normalizeMeta(const QJsonObject &meta) const
     item.insert(QStringLiteral("releaseInfo"), meta.value(QStringLiteral("releaseInfo")).toString());
     item.insert(QStringLiteral("imdbRating"), sanitizeRating(meta.value(QStringLiteral("imdbRating")).toString()));
     item.insert(QStringLiteral("runtime"), meta.value(QStringLiteral("runtime")).toString());
+    if (meta.contains(QStringLiteral("popularity"))) {
+        item.insert(QStringLiteral("popularity"), meta.value(QStringLiteral("popularity")).toDouble());
+    }
+    if (meta.contains(QStringLiteral("score"))) {
+        item.insert(QStringLiteral("score"), meta.value(QStringLiteral("score")).toDouble());
+    }
 
     QStringList genres;
     const QJsonArray genreArray = meta.value(QStringLiteral("genres")).toArray();

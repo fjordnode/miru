@@ -55,17 +55,11 @@ int searchRank(const QVariantMap &item, const QString &query)
     if (q.isEmpty() || name.isEmpty()) {
         return 100;
     }
-    if (name == q) {
+    if (name == q || noArticle == q) {
         return 0;
     }
-    if (noArticle == q) {
-        return 1;
-    }
-    if (name.startsWith(q + QLatin1Char(' '))) {
+    if (name.startsWith(q + QLatin1Char(' ')) || noArticle.startsWith(q + QLatin1Char(' '))) {
         return 10;
-    }
-    if (noArticle.startsWith(q + QLatin1Char(' '))) {
-        return 11;
     }
     const QString paddedName = QStringLiteral(" %1 ").arg(name);
     const QString paddedQuery = QStringLiteral(" %1 ").arg(q);
@@ -85,6 +79,94 @@ double ratingValue(const QVariantMap &item)
     return ok ? rating : 0.0;
 }
 
+int runtimeMinutes(const QVariantMap &item)
+{
+    static const QRegularExpression runtimePattern(QStringLiteral("\\b(\\d+)\\s*min\\b"),
+                                                   QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = runtimePattern.match(item.value(QStringLiteral("runtime")).toString());
+    return match.hasMatch() ? match.captured(1).toInt() : 0;
+}
+
+bool hasNormalReleaseYear(const QVariantMap &item)
+{
+    static const QRegularExpression yearPattern(QStringLiteral("\\b(19|20)\\d{2}\\b"));
+    return yearPattern.match(item.value(QStringLiteral("releaseInfo")).toString()).hasMatch();
+}
+
+double mainstreamScore(const QVariantMap &item)
+{
+    double score = 0.0;
+    const double rating = ratingValue(item);
+    if (rating > 0.0) {
+        score += 40.0 + rating * 15.0;
+    }
+    if (item.value(QStringLiteral("id")).toString().startsWith(QStringLiteral("tt"))) {
+        score += 18.0;
+    }
+    if (!item.value(QStringLiteral("poster")).toString().isEmpty()) {
+        score += 12.0;
+    }
+    if (!item.value(QStringLiteral("background")).toString().isEmpty()) {
+        score += 6.0;
+    }
+    if (!item.value(QStringLiteral("runtime")).toString().isEmpty()) {
+        score += 8.0;
+    }
+    if (!item.value(QStringLiteral("description")).toString().isEmpty()) {
+        score += 5.0;
+    }
+    if (hasNormalReleaseYear(item)) {
+        score += 5.0;
+    }
+    if (item.value(QStringLiteral("type")).toString() == QStringLiteral("movie")) {
+        score += 3.0;
+    }
+    const QStringList genres = item.value(QStringLiteral("genres")).toStringList();
+    if (genres.contains(QStringLiteral("Short"), Qt::CaseInsensitive)) {
+        score -= 60.0;
+    }
+    if (genres.contains(QStringLiteral("Documentary"), Qt::CaseInsensitive)) {
+        score -= 15.0;
+    }
+    const int runtime = runtimeMinutes(item);
+    if (runtime > 0 && runtime < 45) {
+        score -= 80.0;
+    }
+    if (item.contains(QStringLiteral("popularity"))) {
+        const double popularity = item.value(QStringLiteral("popularity")).toDouble();
+        if (popularity >= 0.1) {
+            score += 20.0;
+        } else if (popularity >= 0.02) {
+            score += 10.0;
+        } else if (popularity > 0.0 && popularity < 0.005) {
+            score -= 35.0;
+        }
+    }
+    return score;
+}
+
+double relevanceScore(int rank)
+{
+    if (rank == 0) {
+        return 500.0;
+    }
+    if (rank == 10) {
+        return 430.0;
+    }
+    if (rank == 20) {
+        return 280.0;
+    }
+    if (rank == 40) {
+        return 150.0;
+    }
+    return 0.0;
+}
+
+double searchScore(const QVariantMap &item, const QString &query)
+{
+    return relevanceScore(searchRank(item, query)) + mainstreamScore(item);
+}
+
 void sortSearchResults(QVariantList &items, const QString &query)
 {
     std::stable_sort(items.begin(), items.end(), [&query](const QVariant &left, const QVariant &right) {
@@ -92,14 +174,14 @@ void sortSearchResults(QVariantList &items, const QString &query)
         const QVariantMap b = right.toMap();
         const int rankA = searchRank(a, query);
         const int rankB = searchRank(b, query);
-        if (rankA != rankB) {
-            return rankA < rankB;
+        const double scoreA = searchScore(a, query);
+        const double scoreB = searchScore(b, query);
+        if (!qFuzzyCompare(scoreA + 1.0, scoreB + 1.0)) {
+            return scoreA > scoreB;
         }
 
-        const bool movieA = a.value(QStringLiteral("type")).toString() == QStringLiteral("movie");
-        const bool movieB = b.value(QStringLiteral("type")).toString() == QStringLiteral("movie");
-        if (movieA != movieB) {
-            return movieA;
+        if (rankA != rankB) {
+            return rankA < rankB;
         }
 
         const double ratingA = ratingValue(a);
