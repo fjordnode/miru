@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 960
     minimumHeight: 640
     visible: true
-    title: "Mira"
+    title: "Miru"
     color: Theme.bg
 
     property int page: 0
@@ -205,7 +205,7 @@ ApplicationWindow {
                     }
                 }
                 Text {
-                    text: "Mira"
+                    text: "Miru"
                     color: Theme.text
                     font.pixelSize: Theme.fH3
                     font.bold: true
@@ -953,12 +953,11 @@ ApplicationWindow {
                         onWindowIdChanged: root.startPendingPlayback()
                     }
 
-                    Text {
+                    SearchSpinner {
                         anchors.centerIn: parent
-                        visible: !appController.playbackActive && root.pendingPlaybackKind !== ""
-                        text: "Starting mpv…"
-                        color: Theme.textMute
-                        font.pixelSize: Theme.fBody
+                        visible: appController.playbackBuffering
+                                 || (!appController.playbackActive && root.pendingPlaybackKind !== "")
+                        label: "Opening stream…"
                     }
                 }
 
@@ -1044,7 +1043,7 @@ ApplicationWindow {
             Rectangle {
                 Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4
                 Layout.alignment: Qt.AlignVCenter
-                color: appController.loading ? Theme.gold : Theme.success
+                color: appController.loading || appController.playbackBuffering ? Theme.gold : Theme.success
             }
             Text {
                 text: appController.statusMessage || "Ready"

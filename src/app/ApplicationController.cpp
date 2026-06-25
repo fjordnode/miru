@@ -248,14 +248,24 @@ ApplicationController::ApplicationController(QObject *parent)
     });
 
     connect(&m_player, &ExternalMpvPlayer::errorOccurred, this, [this](const QString &message) {
+        m_playbackBuffering = false;
+        emit playbackStateChanged();
         setStatusMessage(message);
     });
 
     connect(&m_player, &ExternalMpvPlayer::playbackStarted, this, [this]() {
         m_playbackActive = true;
+        m_playbackBuffering = true;
         emit playbackStateChanged();
-        setStatusMessage(m_playbackEmbedded ? QStringLiteral("Playback started embedded")
-                                            : QStringLiteral("Playback started in mpv"));
+        setStatusMessage(m_playbackEmbedded ? QStringLiteral("Starting player — opening stream…")
+                                            : QStringLiteral("Opening stream in mpv…"));
+    });
+
+    connect(&m_player, &ExternalMpvPlayer::playbackPlaying, this, [this]() {
+        m_playbackBuffering = false;
+        emit playbackStateChanged();
+        setStatusMessage(m_playbackEmbedded ? QStringLiteral("Playing")
+                                            : QStringLiteral("Playing in mpv"));
     });
 
     connect(&m_player, &ExternalMpvPlayer::positionChanged, this, [this](double position, double duration) {
@@ -277,6 +287,7 @@ ApplicationController::ApplicationController(QObject *parent)
 
     connect(&m_player, &ExternalMpvPlayer::playbackFinished, this, [this](double position, double duration) {
         m_playbackActive = false;
+        m_playbackBuffering = false;
         m_playbackPosition = position;
         m_playbackDuration = duration;
         m_playbackPaused = false;
@@ -466,6 +477,7 @@ bool ApplicationController::mpvHdrHint() const { return m_mpvHdrHint; }
 QString ApplicationController::mpvExtraArgs() const { return m_mpvExtraArgs; }
 QString ApplicationController::playerMode() const { return m_playerMode; }
 bool ApplicationController::playbackActive() const { return m_playbackActive; }
+bool ApplicationController::playbackBuffering() const { return m_playbackBuffering; }
 bool ApplicationController::playbackEmbedded() const { return m_playbackEmbedded; }
 bool ApplicationController::playbackPaused() const { return m_playbackPaused; }
 QString ApplicationController::playbackTitle() const { return m_playbackTitle; }
@@ -685,6 +697,7 @@ bool ApplicationController::startPlayback(const QString &url, const QString &tit
 void ApplicationController::setPlaybackState(bool active, bool embedded, const QString &title)
 {
     m_playbackActive = active;
+    m_playbackBuffering = false;
     m_playbackEmbedded = embedded;
     m_playbackPaused = false;
     m_playbackPosition = 0.0;

@@ -211,6 +211,7 @@ void ExternalMpvPlayer::resetWatcher(bool emitFinished)
     m_lastDuration = 0.0;
     m_paused = false;
     m_finishEmitted = false;
+    m_playingEmitted = false;
     m_progressTimer.invalidate();
 }
 
@@ -295,6 +296,13 @@ void ExternalMpvPlayer::handleReadyRead()
             if (data.isDouble()) {
                 if (id == 1) {
                     m_lastPosition = data.toDouble();
+                    // First numeric time-pos means mpv has opened the stream and
+                    // is decoding -- the real "now playing" moment, after the
+                    // network open/buffering delay.
+                    if (!m_playingEmitted) {
+                        m_playingEmitted = true;
+                        emit playbackPlaying();
+                    }
                 } else if (id == 2) {
                     m_lastDuration = data.toDouble();
                 }

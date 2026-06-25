@@ -33,6 +33,7 @@ class ApplicationController : public QObject
     Q_PROPERTY(QString mpvExtraArgs READ mpvExtraArgs WRITE setMpvExtraArgs NOTIFY mpvExtraArgsChanged)
     Q_PROPERTY(QString playerMode READ playerMode WRITE setPlayerMode NOTIFY playerModeChanged)
     Q_PROPERTY(bool playbackActive READ playbackActive NOTIFY playbackStateChanged)
+    Q_PROPERTY(bool playbackBuffering READ playbackBuffering NOTIFY playbackStateChanged)
     Q_PROPERTY(bool playbackEmbedded READ playbackEmbedded NOTIFY playbackStateChanged)
     Q_PROPERTY(bool playbackPaused READ playbackPaused NOTIFY playbackStateChanged)
     Q_PROPERTY(QString playbackTitle READ playbackTitle NOTIFY playbackStateChanged)
@@ -63,6 +64,7 @@ public:
     QString mpvExtraArgs() const;
     QString playerMode() const;
     bool playbackActive() const;
+    bool playbackBuffering() const;
     bool playbackEmbedded() const;
     bool playbackPaused() const;
     QString playbackTitle() const;
@@ -162,6 +164,7 @@ private:
     QString m_mpvExtraArgs;
     QString m_playerMode = QStringLiteral("external");
     bool m_playbackActive = false;
+    bool m_playbackBuffering = false;
     bool m_playbackEmbedded = false;
     bool m_playbackPaused = false;
     QString m_playbackTitle;

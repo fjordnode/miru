@@ -32,7 +32,8 @@ public:
     Q_INVOKABLE void seekRelative(double seconds);
 
 signals:
-    void playbackStarted();
+    void playbackStarted();   // mpv launched; stream still opening/buffering
+    void playbackPlaying();    // first frame decoded; playback actually underway
     void positionChanged(double position, double duration);
     void pauseChanged(bool paused);
     void playbackFinished(double position, double duration);
@@ -57,5 +58,6 @@ private:
     double m_lastDuration = 0.0;
     bool m_paused = false;
     bool m_finishEmitted = false;
+    bool m_playingEmitted = false;
     QElapsedTimer m_progressTimer;
 };
