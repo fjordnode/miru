@@ -90,6 +90,28 @@ int searchRank(const QVariantMap &item, const QString &query)
     return 100;
 }
 
+int runtimeMinutes(const QVariantMap &item)
+{
+    static const QRegularExpression runtimePattern(QStringLiteral("\\b(\\d+)\\s*min\\b"),
+                                                   QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = runtimePattern.match(item.value(QStringLiteral("runtime")).toString());
+    return match.hasMatch() ? match.captured(1).toInt() : 0;
+}
+
+// Short films and clips/trailers (sub-45-minute runtimes) the addon sometimes
+// returns under an exact title. They are demoted within their relevance tier so
+// they cannot sit above a real feature that shares the name, without otherwise
+// disturbing the addon's popularity ordering.
+bool isShortResult(const QVariantMap &item)
+{
+    if (item.value(QStringLiteral("genres")).toStringList().contains(QStringLiteral("Short"),
+                                                                     Qt::CaseInsensitive)) {
+        return true;
+    }
+    const int runtime = runtimeMinutes(item);
+    return runtime > 0 && runtime < 45;
+}
+
 void sortSearchResults(QVariantList &items, const QString &query)
 {
     // The metadata addon already ranks its search results (TMDB popularity for
@@ -97,9 +119,24 @@ void sortSearchResults(QVariantList &items, const QString &query)
     // Stremio itself shows. We only apply a relevance guard: a stable sort by
     // match tier keeps the addon's order within each tier while demoting the
     // fuzzy non-matches the addon mixes in (e.g. "Anatomy of a Fall" for a
-    // "Dune" search) and later-word matches below genuine title matches.
+    // "Dune" search). Within a tier, shorts/clips sink to the bottom but the
+    // addon's order is otherwise preserved.
     std::stable_sort(items.begin(), items.end(), [&query](const QVariant &left, const QVariant &right) {
-        return searchRank(left.toMap(), query) < searchRank(right.toMap(), query);
+        const QVariantMap a = left.toMap();
+        const QVariantMap b = right.toMap();
+        const int rankA = searchRank(a, query);
+        const int rankB = searchRank(b, query);
+        if (rankA != rankB) {
+            return rankA < rankB;
+        }
+
+        const bool shortA = isShortResult(a);
+        const bool shortB = isShortResult(b);
+        if (shortA != shortB) {
+            return !shortA;
+        }
+
+        return false;
     });
 }
 }
@@ -272,6 +309,7 @@ ApplicationController::ApplicationController(QObject *parent)
         }
         emit homeSectionsChanged();
         if (!m_searchResults.isEmpty()) {
+            // Backfill poster ratings only; ordering does not depend on ratings.
             m_searchResults = withTitleRatings(m_searchResults);
             emit searchResultsChanged();
         }
