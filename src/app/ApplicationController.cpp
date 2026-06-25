@@ -1,8 +1,10 @@
 #include "ApplicationController.h"
 
+#include <algorithm>
 #include <QDateTime>
 #include <QGuiApplication>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QVariant>
 
@@ -26,6 +28,89 @@ QStringList stringListValue(const QVariant &value)
         }
     }
     return out;
+}
+
+QString normalizedSearchText(QString text)
+{
+    text = text.toCaseFolded();
+    text.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")), QStringLiteral(" "));
+    return text.simplified();
+}
+
+QString withoutLeadingArticle(const QString &text)
+{
+    for (const QString &article : {QStringLiteral("the "), QStringLiteral("a "), QStringLiteral("an ")}) {
+        if (text.startsWith(article)) {
+            return text.mid(article.size());
+        }
+    }
+    return text;
+}
+
+int searchRank(const QVariantMap &item, const QString &query)
+{
+    const QString q = normalizedSearchText(query);
+    const QString name = normalizedSearchText(item.value(QStringLiteral("name")).toString());
+    const QString noArticle = withoutLeadingArticle(name);
+    if (q.isEmpty() || name.isEmpty()) {
+        return 100;
+    }
+    if (name == q) {
+        return 0;
+    }
+    if (noArticle == q) {
+        return 1;
+    }
+    if (name.startsWith(q + QLatin1Char(' '))) {
+        return 10;
+    }
+    if (noArticle.startsWith(q + QLatin1Char(' '))) {
+        return 11;
+    }
+    const QString paddedName = QStringLiteral(" %1 ").arg(name);
+    const QString paddedQuery = QStringLiteral(" %1 ").arg(q);
+    if (paddedName.contains(paddedQuery)) {
+        return 20;
+    }
+    if (name.contains(q)) {
+        return 40;
+    }
+    return 100;
+}
+
+double ratingValue(const QVariantMap &item)
+{
+    bool ok = false;
+    const double rating = item.value(QStringLiteral("imdbRating")).toString().toDouble(&ok);
+    return ok ? rating : 0.0;
+}
+
+void sortSearchResults(QVariantList &items, const QString &query)
+{
+    std::stable_sort(items.begin(), items.end(), [&query](const QVariant &left, const QVariant &right) {
+        const QVariantMap a = left.toMap();
+        const QVariantMap b = right.toMap();
+        const int rankA = searchRank(a, query);
+        const int rankB = searchRank(b, query);
+        if (rankA != rankB) {
+            return rankA < rankB;
+        }
+
+        const bool movieA = a.value(QStringLiteral("type")).toString() == QStringLiteral("movie");
+        const bool movieB = b.value(QStringLiteral("type")).toString() == QStringLiteral("movie");
+        if (movieA != movieB) {
+            return movieA;
+        }
+
+        const double ratingA = ratingValue(a);
+        const double ratingB = ratingValue(b);
+        if (!qFuzzyCompare(ratingA + 1.0, ratingB + 1.0)) {
+            return ratingA > ratingB;
+        }
+
+        return a.value(QStringLiteral("name")).toString().size()
+            < b.value(QStringLiteral("name")).toString().size();
+    });
 }
 }
 
@@ -92,10 +177,15 @@ ApplicationController::ApplicationController(QObject *parent)
         }
     });
 
-    connect(&m_cinemeta, &CinemetaClient::searchReady, this, [this](const QString &, const QVariantList &items) {
+    connect(&m_cinemeta, &CinemetaClient::searchReady, this,
+            [this](const QString &, const QString &query, const QVariantList &items) {
+        if (query != m_searchQuery) {
+            return;
+        }
         for (const QVariant &item : withTitleRatings(items)) {
             m_searchResults.append(item);
         }
+        sortSearchResults(m_searchResults, m_searchQuery);
         emit searchResultsChanged();
         setLoading(false);
     });
@@ -380,6 +470,7 @@ void ApplicationController::search(const QString &query)
     }
 
     m_searchResults.clear();
+    m_searchQuery = trimmed;
     emit searchResultsChanged();
     setLoading(true);
     setStatusMessage(QStringLiteral("Searching"));

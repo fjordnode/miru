@@ -145,6 +145,7 @@ private:
 
     QVariantList m_homeSections; // [{ id, type, title, items }]
     QVariantList m_searchResults;
+    QString m_searchQuery;
     QVariantMap m_selectedMeta;
     QVariantList m_streams;
     QVariantList m_currentSubtitles;

@@ -350,7 +350,7 @@ ApplicationWindow {
                     spacing: Theme.s32
 
                     // search results (while searching)
-                    SectionRail {
+                    SearchResultsGrid {
                         visible: appController.searchResults.length > 0
                         title: "Search Results"
                         subtitle: appController.searchResults.length + " matches"

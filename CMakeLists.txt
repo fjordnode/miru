@@ -51,6 +51,7 @@ qt_add_qml_module(stremio-linux
         qml/components/Pill.qml
         qml/components/SearchField.qml
         qml/components/SearchSpinner.qml
+        qml/components/SearchResultsGrid.qml
         qml/components/PosterCard.qml
         qml/components/ResumeCard.qml
         qml/components/StreamCard.qml

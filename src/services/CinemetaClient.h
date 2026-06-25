@@ -34,7 +34,7 @@ public:
 signals:
     void catalogsDiscovered(const QVariantList &sections);
     void catalogReady(const QString &type, const QString &catalogId, const QVariantList &items);
-    void searchReady(const QString &type, const QVariantList &items);
+    void searchReady(const QString &type, const QString &query, const QVariantList &items);
     void metaReady(const QVariantMap &meta);
     void errorOccurred(const QString &message);
 

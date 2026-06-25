@@ -137,13 +137,13 @@ void CinemetaClient::search(const QString &type, const QString &query)
     const QString catalogId = m_searchCatalogId.value(type, QStringLiteral("top"));
     const QUrl url(QStringLiteral("%1/catalog/%2/%3/search=%4.json")
                        .arg(activeBase(), type, catalogId, encodedQuery));
-    getJson(url, [this, type](const QJsonObject &object) {
+    getJson(url, [this, type, query](const QJsonObject &object) {
         QVariantList items;
         const QJsonArray metas = object.value(QStringLiteral("metas")).toArray();
         for (const QJsonValue &value : metas) {
             items.append(normalizeMeta(value.toObject()));
         }
-        emit searchReady(type, items);
+        emit searchReady(type, query, items);
     });
 }
 
