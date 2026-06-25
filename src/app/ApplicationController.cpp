@@ -55,23 +55,29 @@ int searchRank(const QVariantMap &item, const QString &query)
     if (q.isEmpty() || name.isEmpty()) {
         return 100;
     }
-    // Exact title.
-    if (name == q) {
+    // Exact title (ignoring a leading article). Ordering within this tier is
+    // left to popularity/rating so the canonical title wins over obscure films
+    // that happen to share the exact name.
+    if (name == q || noArticle == q) {
         return 0;
     }
-    // Exact once a leading article is dropped ("The Dune" for "dune"). Ranked
-    // just below a true exact so the real title wins when both are present.
-    if (noArticle == q) {
-        return 5;
+    const QStringList nameTokens = name.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    const QStringList noArticleTokens = noArticle.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    // First whole word equals the query ("Dune: Part Two", "The Matrix
+    // Reloaded"): a franchise/sequel entry, grouped with exact matches so
+    // popularity can interleave them rather than burying the popular ones.
+    if ((!nameTokens.isEmpty() && nameTokens.first() == q)
+        || (!noArticleTokens.isEmpty() && noArticleTokens.first() == q)) {
+        return 0;
     }
-    // Title begins with the query, including token-prefix matches like
-    // "Aliens"/"Matrix Reloaded" for "alien"/"matrix".
+    // Bare character prefix of the first word ("Aliens" for "alien"): related,
+    // but kept below exact/franchise so an unrelated word that merely starts
+    // with the query ("Hereditary" for "her") cannot outrank the real title.
     if (name.startsWith(q) || noArticle.startsWith(q)) {
-        return 10;
+        return 15;
     }
     // The query is a prefix of some later word in the title.
-    const QStringList tokens = name.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-    for (const QString &token : tokens) {
+    for (const QString &token : nameTokens) {
         if (token.startsWith(q)) {
             return 25;
         }
@@ -157,6 +163,35 @@ double mainstreamScore(const QVariantMap &item)
     return score;
 }
 
+double maxPopularity(const QVariantList &items)
+{
+    double maxPop = 0.0;
+    for (const QVariant &entry : items) {
+        const QVariantMap item = entry.toMap();
+        if (item.contains(QStringLiteral("popularity"))) {
+            maxPop = std::max(maxPop, item.value(QStringLiteral("popularity")).toDouble());
+        }
+    }
+    return maxPop;
+}
+
+// Popularity scaled relative to the most popular item in the same result set.
+// Absolute popularity scales differ wildly by source (Cinemeta ~0..0.1, TMDB
+// via AIOMetadata ~0..50), so a fixed bucket ladder saturates or underflows.
+// We only apply this when the source clearly supplies TMDB-scale popularity;
+// for Cinemeta (max well under 1.0) it stays zero and mainstreamScore decides.
+double relativePopularityBonus(const QVariantMap &item, double maxPop)
+{
+    if (maxPop < 1.0) {
+        return 0.0;
+    }
+    const double popularity = item.value(QStringLiteral("popularity")).toDouble();
+    if (popularity <= 0.0) {
+        return 0.0;
+    }
+    return 45.0 * (popularity / maxPop);
+}
+
 void sortSearchResults(QVariantList &items, const QString &query)
 {
     // Relevance is a strict primary key: a better textual match always sorts
@@ -164,7 +199,8 @@ void sortSearchResults(QVariantList &items, const QString &query)
     // query-independent mainstream score (and then rating, then title length)
     // decides order. This keeps popular-but-unrelated fuzzy matches from
     // floating above genuine matches.
-    std::stable_sort(items.begin(), items.end(), [&query](const QVariant &left, const QVariant &right) {
+    const double maxPop = maxPopularity(items);
+    std::stable_sort(items.begin(), items.end(), [&query, maxPop](const QVariant &left, const QVariant &right) {
         const QVariantMap a = left.toMap();
         const QVariantMap b = right.toMap();
 
@@ -174,8 +210,8 @@ void sortSearchResults(QVariantList &items, const QString &query)
             return rankA < rankB;
         }
 
-        const double mainstreamA = mainstreamScore(a);
-        const double mainstreamB = mainstreamScore(b);
+        const double mainstreamA = mainstreamScore(a) + relativePopularityBonus(a, maxPop);
+        const double mainstreamB = mainstreamScore(b) + relativePopularityBonus(b, maxPop);
         if (!qFuzzyCompare(mainstreamA + 1.0, mainstreamB + 1.0)) {
             return mainstreamA > mainstreamB;
         }
