@@ -11,7 +11,7 @@ ApplicationWindow {
     minimumWidth: 960
     minimumHeight: 640
     visible: true
-    title: "AIOStreams Linux"
+    title: "Mira"
     color: Theme.bg
 
     property int page: 0
@@ -205,7 +205,7 @@ ApplicationWindow {
                     }
                 }
                 Text {
-                    text: "AIOStreams"
+                    text: "Mira"
                     color: Theme.text
                     font.pixelSize: Theme.fH3
                     font.bold: true

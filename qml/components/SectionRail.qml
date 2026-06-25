@@ -12,6 +12,7 @@ ColumnLayout {
     signal openRequested(var item)
 
     readonly property int rowHeight: 316
+    readonly property int fadeWidth: 56
 
     Layout.fillWidth: true
     spacing: Theme.s12
@@ -78,18 +79,59 @@ ColumnLayout {
         }
     }
 
-    ListView {
+    // horizontal row with fade-out edges that signal more content to scroll
+    Item {
         visible: !rail.loading && rail.model && rail.model.length > 0
         Layout.fillWidth: true
         Layout.preferredHeight: rail.rowHeight
-        orientation: ListView.Horizontal
-        spacing: Theme.s16
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        model: rail.model
-        delegate: PosterCard {
-            item: modelData
-            onClicked: clickedItem => rail.openRequested(clickedItem)
+
+        ListView {
+            id: railList
+            anchors.fill: parent
+            orientation: ListView.Horizontal
+            spacing: Theme.s16
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            model: rail.model
+            delegate: PosterCard {
+                item: modelData
+                onClicked: clickedItem => rail.openRequested(clickedItem)
+            }
+        }
+
+        // left fade — appears once scrolled away from the start
+        Rectangle {
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: rail.fadeWidth
+            opacity: railList.atXBeginning ? 0 : 1
+            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: Theme.bg }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
+
+        // right fade + chevron — appears while more content remains to the right
+        Rectangle {
+            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+            width: rail.fadeWidth
+            opacity: railList.atXEnd ? 0 : 1
+            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutQuad } }
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop { position: 1.0; color: Theme.bg }
+            }
+            Text {
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.s4
+                anchors.verticalCenter: parent.verticalCenter
+                text: "›"   // ›
+                color: Theme.textDim
+                font.pixelSize: 30
+                font.bold: true
+            }
         }
     }
 }
