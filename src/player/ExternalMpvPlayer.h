@@ -52,6 +52,7 @@ private:
     QProcess *m_process = nullptr;
     QByteArray m_readBuffer;
     QString m_socketPath;
+    QStringList m_pendingSubtitles; // added via IPC after start, off the critical path
     int m_connectAttempts = 0;
     int m_generation = 0;
     double m_lastPosition = 0.0;

@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -14,6 +15,46 @@
 #include <QTimer>
 
 namespace {
+QString firstExecutablePath(const QStringList &candidates)
+{
+    for (const QString &candidate : candidates) {
+        const QFileInfo info(candidate);
+        if (info.exists() && info.isFile() && info.isExecutable()) {
+            return info.absoluteFilePath();
+        }
+    }
+    return {};
+}
+
+QString bundledMpvPath()
+{
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    QStringList candidates;
+
+#if defined(Q_OS_MACOS)
+    candidates << appDir.absoluteFilePath(QStringLiteral("../Resources/mpv/mpv"));
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv"));
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv/mpv"));
+#elif defined(Q_OS_WIN)
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv.exe"));
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv/mpv.exe"));
+#else
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv"));
+    candidates << appDir.absoluteFilePath(QStringLiteral("mpv/mpv"));
+#endif
+
+    return firstExecutablePath(candidates);
+}
+
+QString resolveMpvExecutable()
+{
+    const QString bundled = bundledMpvPath();
+    if (!bundled.isEmpty()) {
+        return bundled;
+    }
+    return QStandardPaths::findExecutable(QStringLiteral("mpv"));
+}
+
 bool isAsahiLinux()
 {
 #if defined(Q_OS_LINUX) && (defined(__aarch64__) || defined(__arm64__))
@@ -54,9 +95,9 @@ bool ExternalMpvPlayer::play(const QString &url, const QString &title,
         return false;
     }
 
-    const QString mpv = QStandardPaths::findExecutable(QStringLiteral("mpv"));
+    const QString mpv = resolveMpvExecutable();
     if (mpv.isEmpty()) {
-        emit errorOccurred(QStringLiteral("mpv was not found on PATH"));
+        emit errorOccurred(QStringLiteral("mpv was not found in the app bundle or on PATH"));
         return false;
     }
 
@@ -121,10 +162,14 @@ bool ExternalMpvPlayer::play(const QString &url, const QString &title,
         }
     }
 
-    // External subtitles (OpenSubtitles). The first one is auto-selected by mpv.
+    // External subtitles (OpenSubtitles) are NOT passed as --sub-file: mpv loads
+    // those during the initial file open and blocks the first frame on them
+    // (~1.4s on a slow start). Instead we remember them and add them over IPC
+    // once mpv is up, so subtitle fetching runs off the playback-start path.
+    m_pendingSubtitles.clear();
     for (const QString &subtitle : subtitleUrls) {
         if (!subtitle.trimmed().isEmpty()) {
-            args << QStringLiteral("--sub-file=%1").arg(subtitle.trimmed());
+            m_pendingSubtitles.append(subtitle.trimmed());
         }
     }
 
@@ -206,6 +251,7 @@ void ExternalMpvPlayer::resetWatcher(bool emitFinished)
 
     m_readBuffer.clear();
     m_socketPath.clear();
+    m_pendingSubtitles.clear();
     m_connectAttempts = 0;
     m_lastPosition = 0.0;
     m_lastDuration = 0.0;
@@ -246,6 +292,14 @@ void ExternalMpvPlayer::retryConnect()
         m_socket->write("{\"command\":[\"observe_property\",2,\"duration\"]}\n");
         m_socket->write("{\"command\":[\"observe_property\",3,\"pause\"]}\n");
         m_socket->write("{\"command\":[\"observe_property\",4,\"eof-reached\"]}\n");
+
+        // Add external subtitles now, off the first-frame path. The first is
+        // selected; any extras are loaded but not auto-selected.
+        for (int i = 0; i < m_pendingSubtitles.size(); ++i) {
+            const QString flag = (i == 0) ? QStringLiteral("select") : QStringLiteral("auto");
+            sendCommand(QJsonArray{QStringLiteral("sub-add"), m_pendingSubtitles.at(i), flag});
+        }
+        m_pendingSubtitles.clear();
         m_socket->flush();
     });
     connect(m_socket, &QLocalSocket::readyRead, this, &ExternalMpvPlayer::handleReadyRead);
