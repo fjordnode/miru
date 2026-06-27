@@ -17,8 +17,9 @@ Item {
                                                          : Math.max(0, Math.min(1, (item.progressPercent || 0) / 100))
     readonly property int minutesLeft: item.duration > item.position ? Math.max(1, Math.round((item.duration - item.position) / 60)) : 0
     readonly property string episodeText: item.type === "series" ? "S" + item.season + " / E" + item.episode + " / " : ""
-    readonly property string progressText: item.duration > 0 ? root.minutesLeft + " min left"
-                                                             : Math.round(root.progress * 100) + "% watched"
+    readonly property string progressText: item.nextUp ? "Next up"
+                                                       : item.duration > 0 ? root.minutesLeft + " min left"
+                                                                         : Math.round(root.progress * 100) + "% watched"
 
     scale: hover.hovered ? 1.03 : 1.0
     Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }

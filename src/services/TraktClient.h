@@ -61,6 +61,8 @@ private:
     void fetchUserSettings();
     void handleUserSettingsReply(QNetworkReply *reply);
     void handlePlaybackProgressReply(const QString &kind, QNetworkReply *reply);
+    void handleWatchedShowsReply(QNetworkReply *reply);
+    void handleShowProgressReply(const QVariantMap &show, QNetworkReply *reply);
     void publishPlaybackProgressIfReady();
     void applyTokenResponse(const QByteArray &payload);
     void setStatus(const QString &message);
@@ -80,8 +82,11 @@ private:
     QVariantList m_playbackProgress;
     QVariantList m_pendingPlaybackMovies;
     QVariantList m_pendingPlaybackEpisodes;
+    QVariantList m_pendingNextUpShows;
     bool m_playbackMoviesPending = false;
     bool m_playbackEpisodesPending = false;
+    bool m_watchedShowsPending = false;
+    int m_showProgressPending = 0;
     QString m_deviceCode;
     QString m_userCode;
     QString m_verificationUrl;

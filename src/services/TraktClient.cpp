@@ -7,12 +7,14 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QSettings>
+#include <QSet>
 #include <QUrl>
 
 #include <algorithm>
 
 namespace {
 constexpr auto kBaseUrl = "https://api.trakt.tv";
+constexpr int kMaxNextUpShows = 30;
 
 QByteArray jsonBody(const QJsonObject &object)
 {
@@ -58,10 +60,157 @@ QString contentId(const QJsonObject &ids)
     return {};
 }
 
+QString showPathId(const QJsonObject &ids)
+{
+    const QString slug = ids.value(QStringLiteral("slug")).toString().trimmed();
+    if (!slug.isEmpty()) {
+        return slug;
+    }
+    const int trakt = ids.value(QStringLiteral("trakt")).toInt();
+    if (trakt > 0) {
+        return QString::number(trakt);
+    }
+    const QString imdb = imdbId(ids);
+    if (!imdb.isEmpty()) {
+        return imdb;
+    }
+    const int tmdb = ids.value(QStringLiteral("tmdb")).toInt();
+    if (tmdb > 0) {
+        return QStringLiteral("tmdb:%1").arg(tmdb);
+    }
+    return {};
+}
+
 qint64 pausedAtSeconds(const QJsonObject &entry)
 {
     const QDateTime pausedAt = QDateTime::fromString(entry.value(QStringLiteral("paused_at")).toString(), Qt::ISODate);
     return pausedAt.isValid() ? pausedAt.toSecsSinceEpoch() : QDateTime::currentSecsSinceEpoch();
+}
+
+qint64 isoSeconds(const QString &value, qint64 fallback = QDateTime::currentSecsSinceEpoch())
+{
+    const QDateTime date = QDateTime::fromString(value, Qt::ISODate);
+    return date.isValid() ? date.toSecsSinceEpoch() : fallback;
+}
+
+QString resumeKey(const QVariantMap &item)
+{
+    const QString type = item.value(QStringLiteral("type")).toString();
+    if (type == QStringLiteral("series")) {
+        return QStringLiteral("series:%1:%2:%3")
+            .arg(item.value(QStringLiteral("baseId")).toString())
+            .arg(item.value(QStringLiteral("season")).toInt())
+            .arg(item.value(QStringLiteral("episode")).toInt());
+    }
+    if (type == QStringLiteral("movie")) {
+        return QStringLiteral("movie:%1").arg(item.value(QStringLiteral("id")).toString());
+    }
+    return {};
+}
+
+QVariantList watchedShowsFromJson(const QByteArray &payload)
+{
+    QVariantList shows;
+    const QJsonArray entries = QJsonDocument::fromJson(payload).array();
+    for (const QJsonValue &value : entries) {
+        const QJsonObject entry = value.toObject();
+        const QJsonObject show = entry.value(QStringLiteral("show")).toObject();
+        const QJsonObject ids = show.value(QStringLiteral("ids")).toObject();
+        const QString baseId = contentId(ids);
+        const QString pathId = showPathId(ids);
+        if (baseId.isEmpty() || pathId.isEmpty()) {
+            continue;
+        }
+
+        QVariantMap item;
+        item.insert(QStringLiteral("baseId"), baseId);
+        item.insert(QStringLiteral("pathId"), pathId);
+        item.insert(QStringLiteral("name"), show.value(QStringLiteral("title")).toString());
+        item.insert(QStringLiteral("updatedAt"), isoSeconds(entry.value(QStringLiteral("last_watched_at")).toString()));
+        shows.append(item);
+    }
+
+    std::sort(shows.begin(), shows.end(), [](const QVariant &left, const QVariant &right) {
+        return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
+            > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
+    });
+    while (shows.size() > kMaxNextUpShows) {
+        shows.removeLast();
+    }
+    return shows;
+}
+
+QVariantMap nextUpFromShowProgress(const QVariantMap &show, const QByteArray &payload)
+{
+    const QJsonObject progress = QJsonDocument::fromJson(payload).object();
+    const int aired = progress.value(QStringLiteral("aired")).toInt();
+    const int completed = progress.value(QStringLiteral("completed")).toInt();
+    if (aired > 0 && completed >= aired) {
+        return {};
+    }
+
+    int season = 0;
+    int episode = 0;
+    QString episodeTitle;
+    const QJsonObject nextEpisode = progress.value(QStringLiteral("next_episode")).toObject();
+    if (!nextEpisode.isEmpty()) {
+        season = nextEpisode.value(QStringLiteral("season")).toInt();
+        episode = nextEpisode.value(QStringLiteral("number")).toInt();
+        episodeTitle = nextEpisode.value(QStringLiteral("title")).toString();
+    }
+
+    if (season <= 0 || episode <= 0) {
+        qint64 latestWatched = 0;
+        int latestSeason = 0;
+        int latestEpisode = 0;
+        const QJsonArray seasons = progress.value(QStringLiteral("seasons")).toArray();
+        for (const QJsonValue &seasonValue : seasons) {
+            const QJsonObject seasonObject = seasonValue.toObject();
+            const int seasonNumber = seasonObject.value(QStringLiteral("number")).toInt();
+            if (seasonNumber <= 0) {
+                continue;
+            }
+            const QJsonArray episodes = seasonObject.value(QStringLiteral("episodes")).toArray();
+            for (const QJsonValue &episodeValue : episodes) {
+                const QJsonObject episodeObject = episodeValue.toObject();
+                if (!episodeObject.value(QStringLiteral("completed")).toBool()) {
+                    continue;
+                }
+                const int episodeNumber = episodeObject.value(QStringLiteral("number")).toInt();
+                if (episodeNumber <= 0) {
+                    continue;
+                }
+                const qint64 watched = isoSeconds(episodeObject.value(QStringLiteral("last_watched_at")).toString(), 0);
+                if (watched > latestWatched
+                    || (watched == latestWatched && (seasonNumber > latestSeason
+                        || (seasonNumber == latestSeason && episodeNumber > latestEpisode)))) {
+                    latestWatched = watched;
+                    latestSeason = seasonNumber;
+                    latestEpisode = episodeNumber;
+                }
+            }
+        }
+        season = latestSeason;
+        episode = latestEpisode + 1;
+    }
+
+    if (season <= 0 || episode <= 0) {
+        return {};
+    }
+
+    QVariantMap item;
+    item.insert(QStringLiteral("type"), QStringLiteral("series"));
+    item.insert(QStringLiteral("id"), show.value(QStringLiteral("baseId")).toString());
+    item.insert(QStringLiteral("baseId"), show.value(QStringLiteral("baseId")).toString());
+    item.insert(QStringLiteral("season"), season);
+    item.insert(QStringLiteral("episode"), episode);
+    item.insert(QStringLiteral("name"), show.value(QStringLiteral("name")).toString());
+    item.insert(QStringLiteral("episodeTitle"), episodeTitle);
+    item.insert(QStringLiteral("source"), QStringLiteral("traktNextUp"));
+    item.insert(QStringLiteral("nextUp"), true);
+    item.insert(QStringLiteral("progressPercent"), 0.0);
+    item.insert(QStringLiteral("updatedAt"), show.value(QStringLiteral("updatedAt")).toLongLong());
+    return item;
 }
 
 QVariantList playbackItemsFromJson(const QByteArray &payload, const QString &kind)
@@ -233,8 +382,11 @@ void TraktClient::clearTokens()
     m_playbackProgress.clear();
     m_pendingPlaybackMovies.clear();
     m_pendingPlaybackEpisodes.clear();
+    m_pendingNextUpShows.clear();
     m_playbackMoviesPending = false;
     m_playbackEpisodesPending = false;
+    m_watchedShowsPending = false;
+    m_showProgressPending = 0;
     emit changed();
 }
 
@@ -357,12 +509,17 @@ void TraktClient::fetchPlaybackProgress()
 
     m_playbackMoviesPending = true;
     m_playbackEpisodesPending = true;
+    m_watchedShowsPending = true;
+    m_showProgressPending = 0;
     m_pendingPlaybackMovies.clear();
     m_pendingPlaybackEpisodes.clear();
+    m_pendingNextUpShows.clear();
     getAuthorized(QStringLiteral("/sync/playback/movies"),
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("movie"), reply); });
     getAuthorized(QStringLiteral("/sync/playback/episodes"),
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("episode"), reply); });
+    getAuthorized(QStringLiteral("/sync/watched/shows"),
+                  [this](QNetworkReply *reply) { handleWatchedShowsReply(reply); });
 }
 
 void TraktClient::sendPlaybackProgress(const QVariantMap &media, double position, double duration)
@@ -611,17 +768,95 @@ void TraktClient::handlePlaybackProgressReply(const QString &kind, QNetworkReply
     publishPlaybackProgressIfReady();
 }
 
+void TraktClient::handleWatchedShowsReply(QNetworkReply *reply)
+{
+    const QByteArray payload = reply->readAll();
+    const int status = httpStatus(reply);
+    m_watchedShowsPending = false;
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+        setStatus(apiErrorMessage(payload, QStringLiteral("Failed to load Trakt watched shows")));
+        emit errorOccurred(m_statusMessage);
+        publishPlaybackProgressIfReady();
+        return;
+    }
+
+    const QVariantList shows = watchedShowsFromJson(payload);
+    m_showProgressPending = shows.size();
+    if (m_showProgressPending == 0) {
+        publishPlaybackProgressIfReady();
+        return;
+    }
+
+    for (const QVariant &entry : shows) {
+        const QVariantMap show = entry.toMap();
+        const QString encoded = QString::fromUtf8(QUrl::toPercentEncoding(show.value(QStringLiteral("pathId")).toString()));
+        getAuthorized(QStringLiteral("/shows/%1/progress/watched?hidden=false&specials=false&count_specials=false").arg(encoded),
+                      [this, show](QNetworkReply *reply) { handleShowProgressReply(show, reply); });
+    }
+}
+
+void TraktClient::handleShowProgressReply(const QVariantMap &show, QNetworkReply *reply)
+{
+    const QByteArray payload = reply->readAll();
+    const int status = httpStatus(reply);
+    if (reply->error() == QNetworkReply::NoError && status >= 200 && status < 300) {
+        const QVariantMap nextUp = nextUpFromShowProgress(show, payload);
+        if (!nextUp.isEmpty()) {
+            m_pendingNextUpShows.append(nextUp);
+        }
+    }
+
+    if (m_showProgressPending > 0) {
+        --m_showProgressPending;
+    }
+    publishPlaybackProgressIfReady();
+}
+
 void TraktClient::publishPlaybackProgressIfReady()
 {
-    if (m_playbackMoviesPending || m_playbackEpisodesPending) {
+    if (m_playbackMoviesPending || m_playbackEpisodesPending || m_watchedShowsPending || m_showProgressPending > 0) {
         return;
     }
 
     QVariantList items = m_pendingPlaybackMovies;
     items.append(m_pendingPlaybackEpisodes);
+
+    QSet<QString> pausedShows;
+    QSet<QString> seenKeys;
+    for (const QVariant &entry : items) {
+        const QVariantMap item = entry.toMap();
+        const QString key = resumeKey(item);
+        if (!key.isEmpty()) {
+            seenKeys.insert(key);
+        }
+        if (item.value(QStringLiteral("type")).toString() == QStringLiteral("series")) {
+            pausedShows.insert(item.value(QStringLiteral("baseId")).toString());
+        }
+    }
+
+    for (const QVariant &entry : m_pendingNextUpShows) {
+        const QVariantMap item = entry.toMap();
+        if (pausedShows.contains(item.value(QStringLiteral("baseId")).toString())) {
+            continue;
+        }
+        const QString key = resumeKey(item);
+        if (key.isEmpty() || seenKeys.contains(key)) {
+            continue;
+        }
+        seenKeys.insert(key);
+        items.append(item);
+    }
+
     std::sort(items.begin(), items.end(), [](const QVariant &left, const QVariant &right) {
-        return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
-            > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
+        const QVariantMap a = left.toMap();
+        const QVariantMap b = right.toMap();
+        const bool aNextUp = a.value(QStringLiteral("nextUp")).toBool();
+        const bool bNextUp = b.value(QStringLiteral("nextUp")).toBool();
+        if (aNextUp != bNextUp) {
+            return !aNextUp;
+        }
+        return a.value(QStringLiteral("updatedAt")).toLongLong()
+            > b.value(QStringLiteral("updatedAt")).toLongLong();
     });
     m_playbackProgress = items;
     emit changed();
