@@ -65,7 +65,8 @@ private:
     void handlePlaybackProgressReply(const QString &kind, QNetworkReply *reply);
     void handleWatchedShowsReply(QNetworkReply *reply);
     void handleShowProgressReply(const QVariantMap &show, QNetworkReply *reply);
-    void publishPlaybackProgressIfReady();
+    void publishPausedPlaybackIfReady();
+    void publishNextUpIfReady();
     void applyTokenResponse(const QByteArray &payload);
     void setStatus(const QString &message);
     void setBusy(bool busy);

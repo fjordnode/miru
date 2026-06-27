@@ -797,7 +797,7 @@ void TraktClient::handlePlaybackProgressReply(const QString &kind, QNetworkReply
         } else {
             m_playbackEpisodesPending = false;
         }
-        publishPlaybackProgressIfReady();
+        publishPausedPlaybackIfReady();
         return;
     }
 
@@ -808,7 +808,7 @@ void TraktClient::handlePlaybackProgressReply(const QString &kind, QNetworkReply
         m_pendingPlaybackEpisodes = playbackItemsFromJson(payload, kind);
         m_playbackEpisodesPending = false;
     }
-    publishPlaybackProgressIfReady();
+    publishPausedPlaybackIfReady();
 }
 
 void TraktClient::handleWatchedShowsReply(QNetworkReply *reply)
@@ -819,14 +819,14 @@ void TraktClient::handleWatchedShowsReply(QNetworkReply *reply)
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
         setStatus(apiErrorMessage(payload, QStringLiteral("Failed to load Trakt watched shows")));
         emit errorOccurred(m_statusMessage);
-        publishPlaybackProgressIfReady();
+        publishNextUpIfReady();
         return;
     }
 
     const QVariantList shows = watchedShowsFromJson(payload);
     m_showProgressPending = shows.size();
     if (m_showProgressPending == 0) {
-        publishPlaybackProgressIfReady();
+        publishNextUpIfReady();
         return;
     }
 
@@ -852,22 +852,37 @@ void TraktClient::handleShowProgressReply(const QVariantMap &show, QNetworkReply
     if (m_showProgressPending > 0) {
         --m_showProgressPending;
     }
-    publishPlaybackProgressIfReady();
+    publishNextUpIfReady();
 }
 
-void TraktClient::publishPlaybackProgressIfReady()
+void TraktClient::publishPausedPlaybackIfReady()
 {
-    if (m_playbackMoviesPending || m_playbackEpisodesPending || m_watchedShowsPending || m_showProgressPending > 0) {
+    if (m_playbackMoviesPending || m_playbackEpisodesPending) {
         return;
     }
 
     QVariantList items = m_pendingPlaybackMovies;
     items.append(m_pendingPlaybackEpisodes);
-    m_nextUp.clear();
+    std::sort(items.begin(), items.end(), [](const QVariant &left, const QVariant &right) {
+        return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
+            > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
+    });
 
+    m_playbackProgress = items;
+    emit changed();
+    publishNextUpIfReady();
+}
+
+void TraktClient::publishNextUpIfReady()
+{
+    if (m_watchedShowsPending || m_showProgressPending > 0) {
+        return;
+    }
+
+    QVariantList items;
     QSet<QString> pausedShows;
     QSet<QString> seenKeys;
-    for (const QVariant &entry : items) {
+    for (const QVariant &entry : m_playbackProgress) {
         const QVariantMap item = entry.toMap();
         const QString key = resumeKey(item);
         if (!key.isEmpty()) {
@@ -888,18 +903,14 @@ void TraktClient::publishPlaybackProgressIfReady()
             continue;
         }
         seenKeys.insert(key);
-        m_nextUp.append(item);
+        items.append(item);
     }
 
     std::sort(items.begin(), items.end(), [](const QVariant &left, const QVariant &right) {
         return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
             > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
     });
-    std::sort(m_nextUp.begin(), m_nextUp.end(), [](const QVariant &left, const QVariant &right) {
-        return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
-            > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
-    });
-    m_playbackProgress = items;
+    m_nextUp = items;
     emit changed();
 }
 
