@@ -108,25 +108,56 @@ QString resumeKey(const QVariantMap &item)
     return {};
 }
 
-QVariantList watchedShowsFromJson(const QByteArray &payload)
+QJsonObject idsObject(const QString &id)
+{
+    QJsonObject ids;
+    if (id.startsWith(QStringLiteral("tt"))) {
+        ids.insert(QStringLiteral("imdb"), id.section(QLatin1Char(':'), 0, 0));
+        return ids;
+    }
+    if (id.startsWith(QStringLiteral("tmdb:"), Qt::CaseInsensitive)) {
+        const int tmdb = id.section(QLatin1Char(':'), 1, 1).toInt();
+        if (tmdb > 0) {
+            ids.insert(QStringLiteral("tmdb"), tmdb);
+        }
+        return ids;
+    }
+    if (id.startsWith(QStringLiteral("trakt:"), Qt::CaseInsensitive)) {
+        const int trakt = id.section(QLatin1Char(':'), 1, 1).toInt();
+        if (trakt > 0) {
+            ids.insert(QStringLiteral("trakt"), trakt);
+        }
+        return ids;
+    }
+
+    const int trakt = id.section(QLatin1Char(':'), 0, 0).toInt();
+    if (trakt > 0) {
+        ids.insert(QStringLiteral("trakt"), trakt);
+    }
+    return ids;
+}
+
+QVariantList historyShowsFromJson(const QByteArray &payload)
 {
     QVariantList shows;
     const QJsonArray entries = QJsonDocument::fromJson(payload).array();
+    QSet<QString> seen;
     for (const QJsonValue &value : entries) {
         const QJsonObject entry = value.toObject();
         const QJsonObject show = entry.value(QStringLiteral("show")).toObject();
         const QJsonObject ids = show.value(QStringLiteral("ids")).toObject();
         const QString baseId = contentId(ids);
         const QString pathId = showPathId(ids);
-        if (baseId.isEmpty() || pathId.isEmpty()) {
+        if (baseId.isEmpty() || pathId.isEmpty() || seen.contains(baseId)) {
             continue;
         }
+        seen.insert(baseId);
 
         QVariantMap item;
         item.insert(QStringLiteral("baseId"), baseId);
         item.insert(QStringLiteral("pathId"), pathId);
         item.insert(QStringLiteral("name"), show.value(QStringLiteral("title")).toString());
-        item.insert(QStringLiteral("updatedAt"), isoSeconds(entry.value(QStringLiteral("last_watched_at")).toString()));
+        item.insert(QStringLiteral("updatedAt"), isoSeconds(entry.value(QStringLiteral("watched_at")).toString()));
         shows.append(item);
     }
 
@@ -520,7 +551,7 @@ void TraktClient::fetchPlaybackProgress()
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("movie"), reply); });
     getAuthorized(QStringLiteral("/sync/playback/episodes"),
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("episode"), reply); });
-    getAuthorized(QStringLiteral("/sync/watched/shows"),
+    getAuthorized(QStringLiteral("/sync/history/episodes?limit=%1").arg(kMaxNextUpShows * 4),
                   [this](QNetworkReply *reply) { handleWatchedShowsReply(reply); });
 }
 
@@ -536,7 +567,8 @@ void TraktClient::sendPlaybackProgress(const QVariantMap &media, double position
         return;
     }
 
-    postAuthorized(QStringLiteral("/scrobble/stop"), jsonBody(body), [this](QNetworkReply *reply) {
+    const QString action = progress >= 92.0 ? QStringLiteral("stop") : QStringLiteral("pause");
+    postAuthorized(QStringLiteral("/scrobble/%1").arg(action), jsonBody(body), [this](QNetworkReply *reply) {
         const QByteArray payload = reply->readAll();
         const int status = httpStatus(reply);
         if ((reply->error() == QNetworkReply::NoError && status >= 200 && status < 300) || status == 409) {
@@ -598,16 +630,15 @@ QJsonObject TraktClient::scrobbleBody(const QVariantMap &media, double progressP
     const QString type = media.value(QStringLiteral("type")).toString();
     const QString id = media.value(QStringLiteral("id")).toString();
     const QString baseId = media.value(QStringLiteral("baseId")).toString();
-    const QString imdb = type == QStringLiteral("series") ? baseId : id;
-    if (!imdb.startsWith(QStringLiteral("tt"))) {
+    const QString contentId = type == QStringLiteral("series") ? baseId : id;
+    const QJsonObject ids = idsObject(contentId);
+    if (ids.isEmpty()) {
         return {};
     }
 
     QJsonObject body;
     body.insert(QStringLiteral("progress"), progressPercent);
     if (type == QStringLiteral("movie")) {
-        QJsonObject ids;
-        ids.insert(QStringLiteral("imdb"), imdb);
         QJsonObject movie;
         movie.insert(QStringLiteral("ids"), ids);
         const QString title = media.value(QStringLiteral("name")).toString();
@@ -625,8 +656,6 @@ QJsonObject TraktClient::scrobbleBody(const QVariantMap &media, double progressP
             return {};
         }
 
-        QJsonObject ids;
-        ids.insert(QStringLiteral("imdb"), imdb);
         QJsonObject show;
         show.insert(QStringLiteral("ids"), ids);
         const QString title = media.value(QStringLiteral("name")).toString();
@@ -817,13 +846,13 @@ void TraktClient::handleWatchedShowsReply(QNetworkReply *reply)
     const int status = httpStatus(reply);
     m_watchedShowsPending = false;
     if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
-        setStatus(apiErrorMessage(payload, QStringLiteral("Failed to load Trakt watched shows")));
+        setStatus(apiErrorMessage(payload, QStringLiteral("Failed to load Trakt watched history")));
         emit errorOccurred(m_statusMessage);
         publishNextUpIfReady();
         return;
     }
 
-    const QVariantList shows = watchedShowsFromJson(payload);
+    const QVariantList shows = historyShowsFromJson(payload);
     m_showProgressPending = shows.size();
     if (m_showProgressPending == 0) {
         publishNextUpIfReady();
