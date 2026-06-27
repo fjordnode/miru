@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QDateTime>
+#include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include <functional>
 
@@ -34,6 +36,7 @@ public:
     void cancelDeviceAuthorization();
     void disconnectTrakt();
     void fetchPlaybackProgress();
+    void sendPlaybackProgress(const QVariantMap &media, double position, double duration);
 
 signals:
     void changed();
@@ -46,8 +49,10 @@ private:
     void clearTokens();
     void postJson(const QString &path, const QByteArray &body, const std::function<void(QNetworkReply *)> &handler);
     void getAuthorized(const QString &path, const std::function<void(QNetworkReply *)> &handler);
+    void postAuthorized(const QString &path, const QByteArray &body, const std::function<void(QNetworkReply *)> &handler);
     bool tokenExpiresSoon() const;
     void refreshAccessToken(const std::function<void(bool)> &handler);
+    QJsonObject scrobbleBody(const QVariantMap &media, double progressPercent) const;
     void handleDeviceCodeReply(QNetworkReply *reply);
     void pollDeviceToken();
     void handleDeviceTokenReply(QNetworkReply *reply);

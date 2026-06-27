@@ -261,6 +261,34 @@ void TraktClient::getAuthorized(const QString &path, const std::function<void(QN
     });
 }
 
+void TraktClient::postAuthorized(const QString &path, const QByteArray &body, const std::function<void(QNetworkReply *)> &handler)
+{
+    if (!connected()) {
+        return;
+    }
+    if (tokenExpiresSoon()) {
+        refreshAccessToken([this, path, body, handler](bool ok) {
+            if (ok) {
+                postAuthorized(path, body, handler);
+            }
+        });
+        return;
+    }
+
+    QNetworkRequest request(QUrl(QString::fromLatin1(kBaseUrl) + path));
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Miru/0.1"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Accept", "application/json");
+    request.setRawHeader("trakt-api-version", "2");
+    request.setRawHeader("trakt-api-key", m_clientId.toUtf8());
+    request.setRawHeader("Authorization", QByteArray("Bearer ") + m_accessToken.toUtf8());
+    QNetworkReply *reply = m_network.post(request, body);
+    connect(reply, &QNetworkReply::finished, this, [reply, handler]() {
+        reply->deleteLater();
+        handler(reply);
+    });
+}
+
 bool TraktClient::tokenExpiresSoon() const
 {
     if (m_tokenCreatedAt <= 0 || m_tokenExpiresIn <= 0) {
@@ -318,6 +346,89 @@ void TraktClient::fetchPlaybackProgress()
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("movie"), reply); });
     getAuthorized(QStringLiteral("/sync/playback/episodes"),
                   [this](QNetworkReply *reply) { handlePlaybackProgressReply(QStringLiteral("episode"), reply); });
+}
+
+void TraktClient::sendPlaybackProgress(const QVariantMap &media, double position, double duration)
+{
+    if (!connected() || duration <= 0.0 || position < 0.0) {
+        return;
+    }
+
+    const double progress = std::clamp((position / duration) * 100.0, 0.0, 100.0);
+    const QJsonObject body = scrobbleBody(media, progress);
+    if (body.isEmpty()) {
+        return;
+    }
+
+    const QString action = progress >= 92.0 ? QStringLiteral("stop") : QStringLiteral("pause");
+    postAuthorized(QStringLiteral("/scrobble/%1").arg(action), jsonBody(body), [this](QNetworkReply *reply) {
+        const QByteArray payload = reply->readAll();
+        const int status = httpStatus(reply);
+        if ((reply->error() == QNetworkReply::NoError && status >= 200 && status < 300) || status == 409) {
+            fetchPlaybackProgress();
+            return;
+        }
+
+        setStatus(apiErrorMessage(payload, QStringLiteral("Failed to update Trakt playback progress")));
+        emit errorOccurred(m_statusMessage);
+    });
+}
+
+QJsonObject TraktClient::scrobbleBody(const QVariantMap &media, double progressPercent) const
+{
+    const QString type = media.value(QStringLiteral("type")).toString();
+    const QString id = media.value(QStringLiteral("id")).toString();
+    const QString baseId = media.value(QStringLiteral("baseId")).toString();
+    const QString imdb = type == QStringLiteral("series") ? baseId : id;
+    if (!imdb.startsWith(QStringLiteral("tt"))) {
+        return {};
+    }
+
+    QJsonObject body;
+    body.insert(QStringLiteral("progress"), progressPercent);
+    if (type == QStringLiteral("movie")) {
+        QJsonObject ids;
+        ids.insert(QStringLiteral("imdb"), imdb);
+        QJsonObject movie;
+        movie.insert(QStringLiteral("ids"), ids);
+        const QString title = media.value(QStringLiteral("name")).toString();
+        if (!title.isEmpty()) {
+            movie.insert(QStringLiteral("title"), title);
+        }
+        body.insert(QStringLiteral("movie"), movie);
+        return body;
+    }
+
+    if (type == QStringLiteral("series")) {
+        const int season = media.value(QStringLiteral("season")).toInt();
+        const int episodeNumber = media.value(QStringLiteral("episode")).toInt();
+        if (season <= 0 || episodeNumber <= 0) {
+            return {};
+        }
+
+        QJsonObject ids;
+        ids.insert(QStringLiteral("imdb"), imdb);
+        QJsonObject show;
+        show.insert(QStringLiteral("ids"), ids);
+        const QString title = media.value(QStringLiteral("name")).toString();
+        if (!title.isEmpty()) {
+            show.insert(QStringLiteral("title"), title);
+        }
+
+        QJsonObject episode;
+        episode.insert(QStringLiteral("season"), season);
+        episode.insert(QStringLiteral("number"), episodeNumber);
+        const QString episodeTitle = media.value(QStringLiteral("episodeTitle")).toString();
+        if (!episodeTitle.isEmpty()) {
+            episode.insert(QStringLiteral("title"), episodeTitle);
+        }
+
+        body.insert(QStringLiteral("show"), show);
+        body.insert(QStringLiteral("episode"), episode);
+        return body;
+    }
+
+    return {};
 }
 
 void TraktClient::handleDeviceCodeReply(QNetworkReply *reply)
