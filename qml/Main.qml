@@ -753,10 +753,10 @@ ApplicationWindow {
                     title: "Trakt"
                     description: "Optional cross-device resume support. Create a Trakt API app, paste its client ID and client secret here, then connect your Trakt account. The app never asks for your Trakt password."
 
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.s8
-                        spacing: Theme.s12
+                        spacing: Theme.s8
 
                         SettingsField {
                             id: traktClientIdField
@@ -764,16 +764,13 @@ ApplicationWindow {
                             text: appController.traktClientId
                             placeholderText: "Trakt client ID"
                             onAccepted: appController.traktClientId = text
-                        }
-                        AppButton {
-                            text: "Save ID"
-                            onClicked: appController.traktClientId = traktClientIdField.text
+                            onTextEdited: appController.traktClientId = text
                         }
                     }
 
-                    RowLayout {
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: Theme.s12
+                        spacing: Theme.s8
 
                         SettingsField {
                             id: traktClientSecretField
@@ -782,10 +779,7 @@ ApplicationWindow {
                             placeholderText: "Trakt client secret"
                             echoMode: TextInput.Password
                             onAccepted: appController.traktClientSecret = text
-                        }
-                        AppButton {
-                            text: "Save secret"
-                            onClicked: appController.traktClientSecret = traktClientSecretField.text
+                            onTextEdited: appController.traktClientSecret = text
                         }
                     }
 
@@ -828,6 +822,22 @@ ApplicationWindow {
                                 font.bold: true
                                 font.letterSpacing: 2
                             }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.s12
+
+                                AppButton {
+                                    text: "Open Trakt"
+                                    enabled: appController.traktVerificationUrl.length > 0
+                                    onClicked: appController.openTraktVerificationUrl()
+                                }
+                                AppButton {
+                                    text: "Copy code"
+                                    enabled: appController.traktUserCode.length > 0
+                                    onClicked: appController.copyTraktUserCode()
+                                }
+                            }
                         }
                     }
 
@@ -841,12 +851,11 @@ ApplicationWindow {
                             enabled: !appController.traktBusy
                                      && appController.traktClientId.length > 0
                                      && appController.traktClientSecret.length > 0
-                            onClicked: appController.connectTrakt()
-                        }
-                        AppButton {
-                            text: "Open Trakt"
-                            enabled: appController.traktAuthPending && appController.traktVerificationUrl.length > 0
-                            onClicked: appController.openTraktVerificationUrl()
+                            onClicked: {
+                                appController.traktClientId = traktClientIdField.text
+                                appController.traktClientSecret = traktClientSecretField.text
+                                appController.connectTrakt()
+                            }
                         }
                         AppButton {
                             text: "Cancel"

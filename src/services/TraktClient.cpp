@@ -25,6 +25,11 @@ QString apiErrorMessage(const QByteArray &payload, const QString &fallback)
     const QString error = object.value(QStringLiteral("error")).toString().trimmed();
     return error.isEmpty() ? fallback : error;
 }
+
+int httpStatus(QNetworkReply *reply)
+{
+    return reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+}
 } // namespace
 
 TraktClient::TraktClient(QObject *parent)
@@ -162,7 +167,8 @@ void TraktClient::handleDeviceCodeReply(QNetworkReply *reply)
 {
     setBusy(false);
     const QByteArray payload = reply->readAll();
-    if (reply->error() != QNetworkReply::NoError) {
+    const int status = httpStatus(reply);
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
         setStatus(apiErrorMessage(payload, QStringLiteral("Failed to request Trakt device code")));
         emit errorOccurred(m_statusMessage);
         return;
@@ -212,17 +218,19 @@ void TraktClient::handleDeviceTokenReply(QNetworkReply *reply)
     setBusy(false);
     const QByteArray payload = reply->readAll();
     const QJsonObject object = QJsonDocument::fromJson(payload).object();
-    if (reply->error() != QNetworkReply::NoError) {
-        const QString error = object.value(QStringLiteral("error")).toString();
-        if (error == QStringLiteral("authorization_pending")) {
-            m_pollTimer.start(m_pollIntervalSeconds * 1000);
-            return;
-        }
-        if (error == QStringLiteral("slow_down")) {
-            m_pollIntervalSeconds += 5;
-            m_pollTimer.start(m_pollIntervalSeconds * 1000);
-            return;
-        }
+    const QString error = object.value(QStringLiteral("error")).toString();
+    if (error == QStringLiteral("authorization_pending")) {
+        m_pollTimer.start(m_pollIntervalSeconds * 1000);
+        return;
+    }
+    if (error == QStringLiteral("slow_down")) {
+        m_pollIntervalSeconds += 5;
+        m_pollTimer.start(m_pollIntervalSeconds * 1000);
+        return;
+    }
+
+    const int status = httpStatus(reply);
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
         finishPendingAuth();
         setStatus(apiErrorMessage(payload, QStringLiteral("Trakt authorization failed")));
         emit errorOccurred(m_statusMessage);

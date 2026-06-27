@@ -127,6 +127,7 @@ public:
     Q_INVOKABLE void cancelTraktAuth();
     Q_INVOKABLE void disconnectTrakt();
     Q_INVOKABLE void openTraktVerificationUrl();
+    Q_INVOKABLE void copyTraktUserCode();
 
 signals:
     void homeSectionsChanged();

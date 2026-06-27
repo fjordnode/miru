@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QGuiApplication>
+#include <QClipboard>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QProcess>
@@ -982,6 +983,14 @@ void ApplicationController::openTraktVerificationUrl()
     const QUrl url(m_trakt.verificationUrl());
     if (url.isValid()) {
         QDesktopServices::openUrl(url);
+    }
+}
+
+void ApplicationController::copyTraktUserCode()
+{
+    if (QClipboard *clipboard = QGuiApplication::clipboard()) {
+        clipboard->setText(m_trakt.userCode());
+        setStatusMessage(QStringLiteral("Trakt code copied"));
     }
 }
 
