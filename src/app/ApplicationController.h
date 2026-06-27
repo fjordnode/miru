@@ -106,6 +106,7 @@ public:
     Q_INVOKABLE void resumeContinueWatching(const QString &key);
     Q_INVOKABLE bool resumeContinueWatchingEmbedded(const QString &key, qulonglong windowId);
     Q_INVOKABLE void removeContinueWatching(const QString &key);
+    Q_INVOKABLE void setPendingRemoteResume(const QString &type, const QString &id, double progressPercent);
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE void setPlaybackPaused(bool paused);
     Q_INVOKABLE void seekPlayback(double seconds);
@@ -157,7 +158,7 @@ private:
     bool playStreamWithWindow(int index, qulonglong windowId);
     bool resumeContinueWatchingWithWindow(const QString &key, qulonglong windowId);
     bool startPlayback(const QString &url, const QString &title, const QVariantMap &headers,
-                       const QStringList &subtitleUrls, double startSeconds,
+                       const QStringList &subtitleUrls, double startSeconds, double startPercent,
                        qulonglong windowId);
     void setPlaybackState(bool active, bool embedded, const QString &title = QString());
     // Warm the on-demand backend's tail range (MKV Cues live there) in parallel
@@ -191,6 +192,9 @@ private:
     QVariantList m_currentSubtitles;
     QVariantMap m_streamMedia;
     QVariantMap m_currentPlaybackMedia;
+    QString m_pendingRemoteResumeType;
+    QString m_pendingRemoteResumeId;
+    double m_pendingRemoteResumePercent = 0.0;
     QString m_aioStreamsUrl;
     QString m_metadataUrl;
     QString m_subtitleLanguage;

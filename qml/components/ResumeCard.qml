@@ -13,9 +13,12 @@ Item {
     height: 326
 
     readonly property real posterHeight: width * 1.42
-    readonly property real progress: item.duration > 0 ? Math.max(0, Math.min(1, item.position / item.duration)) : 0
+    readonly property real progress: item.duration > 0 ? Math.max(0, Math.min(1, item.position / item.duration))
+                                                         : Math.max(0, Math.min(1, (item.progressPercent || 0) / 100))
     readonly property int minutesLeft: item.duration > item.position ? Math.max(1, Math.round((item.duration - item.position) / 60)) : 0
     readonly property string episodeText: item.type === "series" ? "S" + item.season + " / E" + item.episode + " / " : ""
+    readonly property string progressText: item.duration > 0 ? root.minutesLeft + " min left"
+                                                             : Math.round(root.progress * 100) + "% watched"
 
     scale: hover.hovered ? 1.03 : 1.0
     Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
@@ -113,7 +116,7 @@ Item {
 
         Text {
             width: parent.width
-            text: root.episodeText + root.minutesLeft + " min left"
+            text: root.episodeText + root.progressText
             color: Theme.textMute
             font.pixelSize: Theme.fSmall
             maximumLineCount: 1

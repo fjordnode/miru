@@ -41,6 +41,10 @@ ApplicationWindow {
         const resumeEpisodeId = item.type === "series" && item.baseId && item.season > 0 && item.episode > 0
                               ? baseId + ":" + item.season + ":" + item.episode
                               : ""
+        const streamId = item.type === "series" ? resumeEpisodeId : baseId
+        appController.setPendingRemoteResume(item.source === "trakt" ? item.type : "",
+                                             item.source === "trakt" ? streamId : "",
+                                             item.source === "trakt" ? (item.progressPercent || 0) : 0)
         selectedEpisodeId = resumeEpisodeId
         appController.clearStreams()   // drop any stale releases from the last view
         page = 1

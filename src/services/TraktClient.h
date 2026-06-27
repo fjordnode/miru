@@ -4,6 +4,7 @@
 #include <QNetworkAccessManager>
 #include <QObject>
 #include <QTimer>
+#include <QVariantList>
 
 #include <functional>
 
@@ -22,6 +23,7 @@ public:
     QString statusMessage() const;
     QString userCode() const;
     QString verificationUrl() const;
+    QVariantList playbackProgress() const;
     bool connected() const;
     bool authPending() const;
     bool busy() const;
@@ -31,6 +33,7 @@ public:
     void startDeviceAuthorization();
     void cancelDeviceAuthorization();
     void disconnectTrakt();
+    void fetchPlaybackProgress();
 
 signals:
     void changed();
@@ -42,6 +45,9 @@ private:
     void persistTokens();
     void clearTokens();
     void postJson(const QString &path, const QByteArray &body, const std::function<void(QNetworkReply *)> &handler);
+    void getAuthorized(const QString &path, const std::function<void(QNetworkReply *)> &handler);
+    bool tokenExpiresSoon() const;
+    void refreshAccessToken(const std::function<void(bool)> &handler);
     void handleDeviceCodeReply(QNetworkReply *reply);
     void pollDeviceToken();
     void handleDeviceTokenReply(QNetworkReply *reply);
@@ -49,6 +55,8 @@ private:
     bool isTerminalDeviceAuthError(const QString &error) const;
     void fetchUserSettings();
     void handleUserSettingsReply(QNetworkReply *reply);
+    void handlePlaybackProgressReply(const QString &kind, QNetworkReply *reply);
+    void publishPlaybackProgressIfReady();
     void applyTokenResponse(const QByteArray &payload);
     void setStatus(const QString &message);
     void setBusy(bool busy);
@@ -64,6 +72,11 @@ private:
     int m_tokenExpiresIn = 0;
     QString m_username;
     QString m_statusMessage;
+    QVariantList m_playbackProgress;
+    QVariantList m_pendingPlaybackMovies;
+    QVariantList m_pendingPlaybackEpisodes;
+    bool m_playbackMoviesPending = false;
+    bool m_playbackEpisodesPending = false;
     QString m_deviceCode;
     QString m_userCode;
     QString m_verificationUrl;

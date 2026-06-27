@@ -90,10 +90,10 @@ ExternalMpvPlayer::ExternalMpvPlayer(QObject *parent)
 }
 
 bool ExternalMpvPlayer::play(const QString &url, const QString &title,
-                                const QVariantMap &headers, const QStringList &subtitleUrls,
-                                bool enableHwdec, bool enableGpuNext, bool enableHdrHint,
-                                const QStringList &extraArgs, double startSeconds,
-                                qulonglong windowId)
+                                 const QVariantMap &headers, const QStringList &subtitleUrls,
+                                 bool enableHwdec, bool enableGpuNext, bool enableHdrHint,
+                                 const QStringList &extraArgs, double startSeconds, double startPercent,
+                                 qulonglong windowId)
 {
     resetWatcher(true);
 
@@ -121,6 +121,8 @@ bool ExternalMpvPlayer::play(const QString &url, const QString &title,
     }
     if (startSeconds > 0.0) {
         args << QStringLiteral("--start=%1").arg(startSeconds, 0, 'f', 1);
+    } else if (startPercent > 0.0 && startPercent < 100.0) {
+        args << QStringLiteral("--start=%1%").arg(startPercent, 0, 'f', 1);
     }
 
     // We only ever hand mpv a direct HTTP URL, so disable the youtube-dl

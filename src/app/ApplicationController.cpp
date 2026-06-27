@@ -257,6 +257,7 @@ ApplicationController::ApplicationController(QObject *parent)
 
     connect(&m_trakt, &TraktClient::changed, this, [this]() {
         emit traktChanged();
+        emit continueWatchingChanged();
     });
     connect(&m_trakt, &TraktClient::errorOccurred, this, [this](const QString &message) {
         setStatusMessage(message);
@@ -484,7 +485,10 @@ QVariantMap ApplicationController::featured() const
 }
 
 QVariantList ApplicationController::searchResults() const { return m_searchResults; }
-QVariantList ApplicationController::continueWatching() const { return m_watchHistory.inProgress(); }
+QVariantList ApplicationController::continueWatching() const
+{
+    return m_trakt.connected() ? m_trakt.playbackProgress() : m_watchHistory.inProgress();
+}
 QVariantMap ApplicationController::selectedMeta() const { return m_selectedMeta; }
 QVariantList ApplicationController::streams() const { return m_streams; }
 bool ApplicationController::streamsLoading() const { return m_streamsLoading; }
@@ -654,9 +658,19 @@ bool ApplicationController::playStreamWithWindow(int index, qulonglong windowId)
     if (!subtitleUrls.isEmpty()) {
         m_currentPlaybackMedia.insert(QStringLiteral("subtitleUrls"), subtitleUrls);
     }
-    const double startSeconds = m_watchHistory.positionFor(m_currentPlaybackMedia);
+    double startSeconds = m_watchHistory.positionFor(m_currentPlaybackMedia);
 
-    return startPlayback(url, title, headers, subtitleUrls, startSeconds, windowId);
+    double startPercent = 0.0;
+    if (m_pendingRemoteResumeType == m_streamMedia.value(QStringLiteral("type")).toString()
+        && m_pendingRemoteResumeId == m_streamMedia.value(QStringLiteral("id")).toString()) {
+        startPercent = m_pendingRemoteResumePercent;
+        startSeconds = 0.0;
+        m_pendingRemoteResumeType.clear();
+        m_pendingRemoteResumeId.clear();
+        m_pendingRemoteResumePercent = 0.0;
+    }
+
+    return startPlayback(url, title, headers, subtitleUrls, startSeconds, startPercent, windowId);
 }
 
 void ApplicationController::resumeContinueWatching(const QString &key)
@@ -684,11 +698,11 @@ bool ApplicationController::resumeContinueWatchingWithWindow(const QString &key,
     const QStringList subtitleUrls = stringListValue(entry.value(QStringLiteral("subtitleUrls")));
 
     m_currentPlaybackMedia = entry;
-    return startPlayback(url, title, headers, subtitleUrls, m_watchHistory.positionFor(entry), windowId);
+    return startPlayback(url, title, headers, subtitleUrls, m_watchHistory.positionFor(entry), 0.0, windowId);
 }
 
 bool ApplicationController::startPlayback(const QString &url, const QString &title, const QVariantMap &headers,
-                                          const QStringList &subtitleUrls, double startSeconds,
+                                          const QStringList &subtitleUrls, double startSeconds, double startPercent,
                                           qulonglong windowId)
 {
     // Warm the backend's tail range before/while mpv opens the file, so its
@@ -701,8 +715,8 @@ bool ApplicationController::startPlayback(const QString &url, const QString &tit
     if (embedded && QGuiApplication::platformName() != QStringLiteral("xcb")) {
         setPlaybackState(false, false, title);
         const bool started = m_player.play(url, title, headers, subtitleUrls,
-                                           m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
-                                           startSeconds, 0);
+                                            m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
+                                            startSeconds, startPercent, 0);
         if (started) {
             setStatusMessage(QStringLiteral("Embedded mpv needs X11/XWayland; using external mpv"));
         }
@@ -713,7 +727,7 @@ bool ApplicationController::startPlayback(const QString &url, const QString &tit
 
     if (m_player.play(url, title, headers, subtitleUrls,
                       m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
-                      startSeconds, windowId)) {
+                      startSeconds, startPercent, windowId)) {
         return embedded;
     }
 
@@ -725,7 +739,7 @@ bool ApplicationController::startPlayback(const QString &url, const QString &tit
     setPlaybackState(false, false, title);
     m_player.play(url, title, headers, subtitleUrls,
                   m_mpvHardwareDecoding, m_mpvGpuNext, m_mpvHdrHint, extraArgs,
-                  startSeconds, 0);
+                  startSeconds, startPercent, 0);
     return false;
 }
 
@@ -805,7 +819,18 @@ void ApplicationController::seekPlaybackRelative(double seconds)
 
 void ApplicationController::removeContinueWatching(const QString &key)
 {
+    if (m_trakt.connected()) {
+        setStatusMessage(QStringLiteral("Remove Trakt progress from Trakt for now"));
+        return;
+    }
     m_watchHistory.remove(key);
+}
+
+void ApplicationController::setPendingRemoteResume(const QString &type, const QString &id, double progressPercent)
+{
+    m_pendingRemoteResumeType = type;
+    m_pendingRemoteResumeId = id;
+    m_pendingRemoteResumePercent = std::clamp(progressPercent, 0.0, 99.0);
 }
 
 void ApplicationController::setAioStreamsUrl(const QString &url)
@@ -976,6 +1001,7 @@ void ApplicationController::cancelTraktAuth()
 void ApplicationController::disconnectTrakt()
 {
     m_trakt.disconnectTrakt();
+    emit continueWatchingChanged();
 }
 
 void ApplicationController::openTraktVerificationUrl()
