@@ -108,6 +108,59 @@ QString resumeKey(const QVariantMap &item)
     return {};
 }
 
+QString metadataIdForItem(const QVariantMap &item)
+{
+    return item.value(QStringLiteral("type")).toString() == QStringLiteral("series")
+        ? item.value(QStringLiteral("baseId")).toString()
+        : item.value(QStringLiteral("id")).toString();
+}
+
+bool applyMetadataToItem(QVariantMap &item, const QVariantMap &meta)
+{
+    bool changed = false;
+    for (const QString &key : {QStringLiteral("poster"), QStringLiteral("background"), QStringLiteral("description"), QStringLiteral("releaseInfo")}) {
+        const QVariant value = meta.value(key);
+        if (!value.toString().isEmpty() && item.value(key).toString().isEmpty()) {
+            item.insert(key, value);
+            changed = true;
+        }
+    }
+
+    const QString name = meta.value(QStringLiteral("name")).toString();
+    if (!name.isEmpty()) {
+        item.insert(QStringLiteral("name"), name);
+        changed = true;
+    }
+
+    if (item.value(QStringLiteral("type")).toString() != QStringLiteral("series")) {
+        return changed;
+    }
+
+    const int season = item.value(QStringLiteral("season")).toInt();
+    const int episode = item.value(QStringLiteral("episode")).toInt();
+    for (const QVariant &videoEntry : meta.value(QStringLiteral("videos")).toList()) {
+        const QVariantMap video = videoEntry.toMap();
+        if (video.value(QStringLiteral("season")).toInt() != season
+            || video.value(QStringLiteral("episode")).toInt() != episode) {
+            continue;
+        }
+
+        const QString thumbnail = video.value(QStringLiteral("thumbnail")).toString();
+        if (!thumbnail.isEmpty() && item.value(QStringLiteral("thumbnail")).toString().isEmpty()) {
+            item.insert(QStringLiteral("thumbnail"), thumbnail);
+            changed = true;
+        }
+        const QString title = video.value(QStringLiteral("title")).toString();
+        if (!title.isEmpty() && item.value(QStringLiteral("episodeTitle")).toString().isEmpty()) {
+            item.insert(QStringLiteral("episodeTitle"), title);
+            changed = true;
+        }
+        break;
+    }
+
+    return changed;
+}
+
 QString activityFingerprint(const QJsonObject &object)
 {
     const QJsonObject movies = object.value(QStringLiteral("movies")).toObject();
@@ -429,6 +482,7 @@ void TraktClient::clearTokens()
     m_tokenExpiresIn = 0;
     m_username.clear();
     m_activityFingerprint.clear();
+    m_metadataCache.clear();
     m_playbackProgress.clear();
     m_nextUp.clear();
     m_pendingPlaybackMovies.clear();
@@ -636,52 +690,17 @@ void TraktClient::applyMetadata(const QVariantMap &meta)
     if (id.isEmpty()) {
         return;
     }
+    m_metadataCache.insert(id, meta);
 
     auto applyToList = [&meta, &id](QVariantList &items) {
         bool changed = false;
         for (QVariant &entry : items) {
             QVariantMap item = entry.toMap();
-            const QString itemId = item.value(QStringLiteral("type")).toString() == QStringLiteral("series")
-                ? item.value(QStringLiteral("baseId")).toString()
-                : item.value(QStringLiteral("id")).toString();
+            const QString itemId = metadataIdForItem(item);
             if (itemId != id) {
                 continue;
             }
-
-            for (const QString &key : {QStringLiteral("poster"), QStringLiteral("background"), QStringLiteral("description"), QStringLiteral("releaseInfo")}) {
-                const QVariant value = meta.value(key);
-                if (!value.toString().isEmpty() && item.value(key).toString().isEmpty()) {
-                    item.insert(key, value);
-                    changed = true;
-                }
-            }
-            const QString name = meta.value(QStringLiteral("name")).toString();
-            if (!name.isEmpty()) {
-                item.insert(QStringLiteral("name"), name);
-                changed = true;
-            }
-            if (item.value(QStringLiteral("type")).toString() == QStringLiteral("series")) {
-                const int season = item.value(QStringLiteral("season")).toInt();
-                const int episode = item.value(QStringLiteral("episode")).toInt();
-                for (const QVariant &videoEntry : meta.value(QStringLiteral("videos")).toList()) {
-                    const QVariantMap video = videoEntry.toMap();
-                    if (video.value(QStringLiteral("season")).toInt() != season
-                        || video.value(QStringLiteral("episode")).toInt() != episode) {
-                        continue;
-                    }
-                    const QString thumbnail = video.value(QStringLiteral("thumbnail")).toString();
-                    if (!thumbnail.isEmpty() && item.value(QStringLiteral("thumbnail")).toString().isEmpty()) {
-                        item.insert(QStringLiteral("thumbnail"), thumbnail);
-                        changed = true;
-                    }
-                    const QString title = video.value(QStringLiteral("title")).toString();
-                    if (!title.isEmpty() && item.value(QStringLiteral("episodeTitle")).toString().isEmpty()) {
-                        item.insert(QStringLiteral("episodeTitle"), title);
-                        changed = true;
-                    }
-                    break;
-                }
-            }
+            changed = applyMetadataToItem(item, meta) || changed;
             entry = item;
         }
         return changed;
@@ -690,6 +709,19 @@ void TraktClient::applyMetadata(const QVariantMap &meta)
     const bool metadataChanged = applyToList(m_playbackProgress) | applyToList(m_nextUp);
     if (metadataChanged) {
         emit changed();
+    }
+}
+
+void TraktClient::applyCachedMetadata(QVariantList &items) const
+{
+    for (QVariant &entry : items) {
+        QVariantMap item = entry.toMap();
+        const QVariantMap meta = m_metadataCache.value(metadataIdForItem(item));
+        if (meta.isEmpty()) {
+            continue;
+        }
+        applyMetadataToItem(item, meta);
+        entry = item;
     }
 }
 
@@ -964,6 +996,7 @@ void TraktClient::publishPausedPlaybackIfReady()
         return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
             > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
     });
+    applyCachedMetadata(items);
 
     m_playbackProgress = items;
     emit changed();
@@ -1007,6 +1040,7 @@ void TraktClient::publishNextUpIfReady()
         return left.toMap().value(QStringLiteral("updatedAt")).toLongLong()
             > right.toMap().value(QStringLiteral("updatedAt")).toLongLong();
     });
+    applyCachedMetadata(items);
     m_nextUp = items;
     emit changed();
 }

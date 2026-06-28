@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
 #include <QObject>
@@ -69,6 +70,7 @@ private:
     void handleShowProgressReply(const QVariantMap &show, QNetworkReply *reply);
     void publishPausedPlaybackIfReady();
     void publishNextUpIfReady();
+    void applyCachedMetadata(QVariantList &items) const;
     void applyTokenResponse(const QByteArray &payload);
     void setStatus(const QString &message);
     void setBusy(bool busy);
@@ -86,6 +88,7 @@ private:
     QString m_username;
     QString m_statusMessage;
     QString m_activityFingerprint;
+    QHash<QString, QVariantMap> m_metadataCache;
     QVariantList m_playbackProgress;
     QVariantList m_nextUp;
     QVariantList m_pendingPlaybackMovies;

@@ -25,18 +25,18 @@ Item {
                                          ? (item.thumbnail || item.episodeThumbnail || item.poster || "")
                                          : (item.poster || item.thumbnail || item.episodeThumbnail || "")
 
-    scale: hover.hovered ? 1.03 : 1.0
-    Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
-
     Rectangle {
         id: posterFrame
         width: parent.width
         height: root.artworkHeight
+        transformOrigin: Item.Center
+        scale: hover.hovered ? 1.03 : 1.0
         radius: Theme.rLg
         color: Theme.surface
         border.color: hover.hovered ? Theme.accent : Theme.line
         border.width: 1
         clip: true
+        Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
 
         Image {
             anchors.fill: parent
