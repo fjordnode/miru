@@ -437,18 +437,10 @@ ApplicationWindow {
                 width: parent.width
                 spacing: Theme.s24
 
-                RowLayout {
-                    Layout.topMargin: Theme.s24
-                    Layout.leftMargin: Theme.s32
-                    AppButton {
-                        text: "‹  Back"
-                        onClicked: root.page = 0
-                    }
-                }
-
                 // hero details
                 Item {
                     Layout.fillWidth: true
+                    Layout.topMargin: Theme.s24
                     Layout.leftMargin: Theme.s32
                     Layout.rightMargin: Theme.s32
                     implicitHeight: 380
@@ -560,6 +552,14 @@ ApplicationWindow {
                                 }
                             }
                         }
+                    }
+
+                    AppButton {
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.margins: Theme.s16
+                        text: "‹  Back"
+                        onClicked: root.page = 0
                     }
                 }
 
