@@ -72,15 +72,6 @@ Item {
                 cache: true
             }
 
-            // legibility gradient behind the rating badge
-            Rectangle {
-                anchors.fill: parent
-                visible: ratingPill.visible
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#88000000" }
-                    GradientStop { position: 0.3; color: "transparent" }
-                }
-            }
         }
 
         // rounded shape that masks posterContent

@@ -20,6 +20,7 @@ Item {
     readonly property string progressText: item.nextUp ? "Next up"
                                                        : item.duration > 0 ? root.minutesLeft + " min left"
                                                                          : Math.round(root.progress * 100) + "% watched"
+    readonly property string imageSource: item.thumbnail || item.episodeThumbnail || item.poster || ""
 
     scale: hover.hovered ? 1.03 : 1.0
     Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutQuad } }
@@ -36,23 +37,14 @@ Item {
 
         Image {
             anchors.fill: parent
-            source: root.item.poster || ""
+            source: root.imageSource
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
         }
 
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#22000000" }
-                GradientStop { position: 0.68; color: "transparent" }
-                GradientStop { position: 1.0; color: "#cc000000" }
-            }
-        }
-
         Text {
             anchors.centerIn: parent
-            visible: !root.item.poster
+            visible: !root.imageSource
             text: (root.item.name || "?").charAt(0).toUpperCase()
             color: Theme.textMute
             font.pixelSize: 48
@@ -88,8 +80,8 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.bottom: parent.bottom
-            height: 5
-            color: "#99000000"
+            height: 2
+            color: "transparent"
             Rectangle {
                 width: parent.width * root.progress
                 height: parent.height

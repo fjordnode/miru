@@ -62,6 +62,8 @@ private:
     bool isTerminalDeviceAuthError(const QString &error) const;
     void fetchUserSettings();
     void handleUserSettingsReply(QNetworkReply *reply);
+    void pollTraktActivities();
+    void handleActivitiesReply(QNetworkReply *reply);
     void handlePlaybackProgressReply(const QString &kind, QNetworkReply *reply);
     void handleWatchedShowsReply(QNetworkReply *reply);
     void handleShowProgressReply(const QVariantMap &show, QNetworkReply *reply);
@@ -74,6 +76,7 @@ private:
 
     QNetworkAccessManager m_network;
     QTimer m_pollTimer;
+    QTimer m_activityTimer;
     QString m_clientId;
     QString m_clientSecret;
     QString m_accessToken;
@@ -82,6 +85,7 @@ private:
     int m_tokenExpiresIn = 0;
     QString m_username;
     QString m_statusMessage;
+    QString m_activityFingerprint;
     QVariantList m_playbackProgress;
     QVariantList m_nextUp;
     QVariantList m_pendingPlaybackMovies;

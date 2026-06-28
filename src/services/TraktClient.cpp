@@ -108,6 +108,20 @@ QString resumeKey(const QVariantMap &item)
     return {};
 }
 
+QString activityFingerprint(const QJsonObject &object)
+{
+    const QJsonObject movies = object.value(QStringLiteral("movies")).toObject();
+    const QJsonObject episodes = object.value(QStringLiteral("episodes")).toObject();
+    const QJsonObject shows = object.value(QStringLiteral("shows")).toObject();
+    return QStringList{
+        movies.value(QStringLiteral("paused_at")).toString(),
+        movies.value(QStringLiteral("watched_at")).toString(),
+        episodes.value(QStringLiteral("paused_at")).toString(),
+        episodes.value(QStringLiteral("watched_at")).toString(),
+        shows.value(QStringLiteral("watched_at")).toString(),
+    }.join(QLatin1Char('|'));
+}
+
 QJsonObject idsObject(const QString &id)
 {
     QJsonObject ids;
@@ -298,6 +312,8 @@ TraktClient::TraktClient(QObject *parent)
 {
     m_pollTimer.setSingleShot(true);
     connect(&m_pollTimer, &QTimer::timeout, this, &TraktClient::pollDeviceToken);
+    m_activityTimer.setInterval(60000);
+    connect(&m_activityTimer, &QTimer::timeout, this, &TraktClient::pollTraktActivities);
     load();
 }
 
@@ -378,6 +394,7 @@ void TraktClient::load()
                       ? QStringLiteral("Trakt connected")
                       : QStringLiteral("Trakt connected as %1").arg(m_username));
         fetchPlaybackProgress();
+        m_activityTimer.start();
     }
 }
 
@@ -411,6 +428,7 @@ void TraktClient::clearTokens()
     m_tokenCreatedAt = 0;
     m_tokenExpiresIn = 0;
     m_username.clear();
+    m_activityFingerprint.clear();
     m_playbackProgress.clear();
     m_nextUp.clear();
     m_pendingPlaybackMovies.clear();
@@ -420,6 +438,7 @@ void TraktClient::clearTokens()
     m_playbackEpisodesPending = false;
     m_watchedShowsPending = false;
     m_showProgressPending = 0;
+    m_activityTimer.stop();
     emit changed();
 }
 
@@ -584,6 +603,33 @@ void TraktClient::sendPlaybackProgress(const QVariantMap &media, double position
     });
 }
 
+void TraktClient::pollTraktActivities()
+{
+    if (!connected()) {
+        return;
+    }
+
+    getAuthorized(QStringLiteral("/sync/last_activities"),
+                  [this](QNetworkReply *reply) { handleActivitiesReply(reply); });
+}
+
+void TraktClient::handleActivitiesReply(QNetworkReply *reply)
+{
+    const QByteArray payload = reply->readAll();
+    const int status = httpStatus(reply);
+    if (reply->error() != QNetworkReply::NoError || status < 200 || status >= 300) {
+        return;
+    }
+
+    const QString fingerprint = activityFingerprint(QJsonDocument::fromJson(payload).object());
+    if (fingerprint.isEmpty() || fingerprint == m_activityFingerprint) {
+        return;
+    }
+
+    m_activityFingerprint = fingerprint;
+    fetchPlaybackProgress();
+}
+
 void TraktClient::applyMetadata(const QVariantMap &meta)
 {
     const QString id = meta.value(QStringLiteral("id")).toString();
@@ -613,6 +659,28 @@ void TraktClient::applyMetadata(const QVariantMap &meta)
             if (!name.isEmpty()) {
                 item.insert(QStringLiteral("name"), name);
                 changed = true;
+            }
+            if (item.value(QStringLiteral("type")).toString() == QStringLiteral("series")) {
+                const int season = item.value(QStringLiteral("season")).toInt();
+                const int episode = item.value(QStringLiteral("episode")).toInt();
+                for (const QVariant &videoEntry : meta.value(QStringLiteral("videos")).toList()) {
+                    const QVariantMap video = videoEntry.toMap();
+                    if (video.value(QStringLiteral("season")).toInt() != season
+                        || video.value(QStringLiteral("episode")).toInt() != episode) {
+                        continue;
+                    }
+                    const QString thumbnail = video.value(QStringLiteral("thumbnail")).toString();
+                    if (!thumbnail.isEmpty() && item.value(QStringLiteral("thumbnail")).toString().isEmpty()) {
+                        item.insert(QStringLiteral("thumbnail"), thumbnail);
+                        changed = true;
+                    }
+                    const QString title = video.value(QStringLiteral("title")).toString();
+                    if (!title.isEmpty() && item.value(QStringLiteral("episodeTitle")).toString().isEmpty()) {
+                        item.insert(QStringLiteral("episodeTitle"), title);
+                        changed = true;
+                    }
+                    break;
+                }
             }
             entry = item;
         }
@@ -951,6 +1019,9 @@ void TraktClient::applyTokenResponse(const QByteArray &payload)
     m_tokenCreatedAt = static_cast<qint64>(object.value(QStringLiteral("created_at")).toDouble());
     m_tokenExpiresIn = object.value(QStringLiteral("expires_in")).toInt();
     persistTokens();
+    if (connected()) {
+        m_activityTimer.start();
+    }
     emit changed();
 }
 
